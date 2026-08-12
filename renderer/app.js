@@ -110,7 +110,31 @@ function renderOverview() {
     </div>
     ${blockHtml}
     ${act}
-    <div class="card"><h3>Today by model</h3>${barRows(data.todayByModel, t.today.cost)}</div>`;
+    <div class="card"><h3>Today by model</h3>${barRows(data.todayByModel, t.today.cost)}</div>
+    ${valueCard()}`;
+}
+
+function valueCard() {
+  if (!settings || !settings.planPrice || settings.planPrice <= 0) return '';
+  const m = data.totals.month.cost;
+  const days = new Date().getDate();
+  const projected = (m / days) * 30.4;
+  const rows = [
+    { name: 'Pro ($20)', price: 20 },
+    { name: 'Max 5x ($100)', price: 100 },
+    { name: 'Max 20x ($200)', price: 200 },
+  ].map((p) => {
+    const mult = m / p.price;
+    return `<div class="bar-row">
+      <span class="name">${esc(p.name)}</span>
+      <span class="bar"><i style="width:${Math.min(100, mult * 10).toFixed(1)}%"></i></span>
+      <span class="val">${mult.toFixed(1)}×</span>
+    </div>`;
+  }).join('');
+  return `<div class="card"><h3>Plan value · ${money(m)} API-equivalent this month (projected ${money(projected)})</h3>
+    ${rows}
+    <div class="note">× = API-equivalent usage ÷ plan price. Your ${esc(settings.planName)} at $${settings.planPrice}/mo has delivered <b>${money(Math.max(0, m - settings.planPrice))}</b> more value than it costs this month. Note: cheaper plans have lower rate limits — this shows value, not whether the usage would fit those plans.</div>
+  </div>`;
 }
 
 function renderSessions() {
@@ -195,6 +219,10 @@ function renderSettings() {
         <input id="set-ontop" type="checkbox" ${s.alwaysOnTop ? 'checked' : ''} /></div>
       <div class="setting-row"><label>Launch at login</label>
         <input id="set-login" type="checkbox" ${s.launchAtLogin ? 'checked' : ''} /></div>
+      <div class="setting-row"><label>Plan name</label>
+        <input id="set-planname" type="text" style="width:110px;background:rgba(255,255,255,0.07);border:1px solid var(--border);color:var(--fg);border-radius:6px;padding:3px 6px;" value="${esc(s.planName || '')}" /></div>
+      <div class="setting-row"><label>Plan price $/mo (0 = hide savings)</label>
+        <input id="set-planprice" type="number" min="0" max="2000" value="${s.planPrice ?? 200}" /></div>
     </div>
     <div class="card"><h3>Pricing (USD per 1M tokens)${s.pricingIsCustom ? ' · custom' : ' · defaults'}</h3>
       <textarea id="set-pricing" class="pricing" spellcheck="false">${esc(JSON.stringify(s.pricing, null, 2))}</textarea>
@@ -220,6 +248,8 @@ function renderSettings() {
   });
   $('#set-ontop').addEventListener('change', (e) => window.hud.updateSettings({ alwaysOnTop: e.target.checked }));
   $('#set-login').addEventListener('change', (e) => window.hud.updateSettings({ launchAtLogin: e.target.checked }));
+  $('#set-planname').addEventListener('change', (e) => window.hud.updateSettings({ planName: e.target.value || 'Plan' }));
+  $('#set-planprice').addEventListener('change', (e) => window.hud.updateSettings({ planPrice: Math.max(0, parseInt(e.target.value, 10) || 0) }));
   $('#btn-save-pricing').addEventListener('click', () => {
     try {
       const p = JSON.parse($('#set-pricing').value);
@@ -322,14 +352,40 @@ function renderCompact() {
     ));
   }
 
-  const note = lim && !lim.ok
-    ? `<div class="cnote">official limit %s unavailable (${esc(lim.error || 'no token')}) — run the claude CLI once to refresh the token</div>`
-    : '';
+  let note = '';
+  if (lim && !lim.ok) {
+    note = `<div class="cnote">official limit %s unavailable — ${esc(friendlyLimitError(lim.error))}</div>`;
+  } else if (lim && lim.stale) {
+    note = `<div class="cnote">limits last updated ${hm(lim.fetchedAt)} (${esc(friendlyLimitError(lim.staleError))})</div>`;
+  }
+
+  const savings = savingsLine();
 
   content.innerHTML = `
     ${rows.join('')}
     <div class="cfoot">today <b>${money(t.today.cost)}</b> · week <b>${money(t.week.cost)}</b> · month <b>${money(t.month.cost)}</b></div>
+    ${savings}
     ${note}`;
+}
+
+function friendlyLimitError(err) {
+  const e = String(err || '');
+  if (e.includes('401')) return 'login token expired; run the claude CLI once to refresh it';
+  if (e.includes('429')) return 'rate-limited by the API, retrying in a few minutes';
+  if (e.includes('credentials')) return 'no Claude login found';
+  return e;
+}
+
+// "What would this month have cost at API prices vs my subscription?"
+function savingsLine() {
+  if (!settings || !settings.planPrice || settings.planPrice <= 0) return '';
+  const m = data.totals.month.cost;
+  const saved = m - settings.planPrice;
+  const mult = m / settings.planPrice;
+  if (m < settings.planPrice) {
+    return `<div class="cnote">${esc(settings.planName)} $${settings.planPrice}/mo · ${money(m)} used so far (${(mult * 100).toFixed(0)}% of plan price)</div>`;
+  }
+  return `<div class="cnote">${esc(settings.planName)} $${settings.planPrice}/mo → <b class="cost">saved ${money(saved)}</b> vs API this month (${mult.toFixed(1)}× value)</div>`;
 }
 
 const renderers = {

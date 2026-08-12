@@ -20,9 +20,11 @@ const DEFAULT_SETTINGS = {
   launchAtLogin: false,
   pinned: false,
   pricing: null, // null = use DEFAULT_PRICING
+  planPrice: 200, // monthly subscription price for the savings line; 0 hides it
+  planName: 'Max 20x',
 };
 
-const COMPACT_HEIGHT = 205;
+const COMPACT_HEIGHT = 222;
 
 let win = null;
 let tray = null;
@@ -130,7 +132,9 @@ function parseLimits(json) {
   return windows;
 }
 
+let limitsBackoffUntil = 0;
 async function fetchLimits() {
+  if (Date.now() < limitsBackoffUntil) return;
   try {
     const raw = fs.readFileSync(path.join(CLAUDE_DIR, '.credentials.json'), 'utf8');
     const cred = JSON.parse(raw).claudeAiOauth;
@@ -141,11 +145,23 @@ async function fetchLimits() {
         'anthropic-beta': 'oauth-2025-04-20',
       },
     });
+    if (res.status === 429) {
+      limitsBackoffUntil = Date.now() + 10 * 60 * 1000; // back off 10 min
+      throw new Error('HTTP 429');
+    }
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const windows = parseLimits(await res.json());
     lastLimits = { ok: true, fetchedAt: Date.now(), windows, subscriptionType: cred.subscriptionType || null };
+    try { fs.writeFileSync(path.join(app.getPath('userData'), 'limits-cache.json'), JSON.stringify(lastLimits)); } catch { /* non-fatal */ }
   } catch (err) {
-    lastLimits = { ok: false, fetchedAt: Date.now(), error: String(err.message || err) };
+    // A transient failure should not blank out bars we already have — keep the
+    // last good data and mark it stale.
+    if (lastLimits && lastLimits.ok) {
+      lastLimits.stale = true;
+      lastLimits.staleError = String(err.message || err);
+    } else {
+      lastLimits = { ok: false, fetchedAt: Date.now(), error: String(err.message || err) };
+    }
   }
   pushData();
 }
@@ -205,6 +221,7 @@ function createWindow() {
     height: settings.compact ? COMPACT_HEIGHT : (b.height || 520),
     x: b.x,
     y: b.y,
+    show: false, // transparent frameless windows race on creation; show explicitly below
     frame: false,
     transparent: true,
     resizable: true,
@@ -219,6 +236,7 @@ function createWindow() {
     },
   });
   if (settings.alwaysOnTop) win.setAlwaysOnTop(true, 'screen-saver');
+  win.once('ready-to-show', () => { if (win && !win.isDestroyed()) win.showInactive(); });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
   const saveBounds = () => {
@@ -231,6 +249,7 @@ function createWindow() {
   win.on('closed', () => { win = null; });
 
   win.webContents.on('did-finish-load', () => {
+    if (!win.isVisible()) win.showInactive(); // belt and suspenders for the show race
     win.webContents.send('hud:settings', publicSettings());
     win.webContents.send('hud:pinned', settings.pinned);
     pushData();
@@ -242,6 +261,8 @@ function createWindow() {
 function publicSettings() {
   return {
     compact: settings.compact,
+    planPrice: settings.planPrice,
+    planName: settings.planName,
     idleOpacity: settings.idleOpacity,
     pollIntervalMs: settings.pollIntervalMs,
     alwaysOnTop: settings.alwaysOnTop,
@@ -321,8 +342,14 @@ if (!gotLock) {
 
     startPolling();
     startHoverPolling();
+    // Seed with the last successful limits fetch so a restart during an API
+    // backoff still shows bars (marked stale until refreshed).
+    try {
+      const c = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'limits-cache.json'), 'utf8'));
+      if (c && c.ok) { c.stale = true; lastLimits = c; }
+    } catch { /* no cache yet */ }
     fetchLimits();
-    limitsTimer = setInterval(fetchLimits, 60 * 1000);
+    limitsTimer = setInterval(fetchLimits, 120 * 1000);
   });
 }
 
