@@ -36,6 +36,9 @@ body {
   transition: opacity 0.25s ease;
 }
 .app.hot { opacity: 1; }
+/* Pinned = click-through: stay at idle transparency even under the cursor,
+   so you can see (and click) what's behind it. */
+.app.pinned, .app.pinned.hot { opacity: var(--idle-opacity); }
 
 /* compact mode hides the tab chrome */
 .app.compact .tabs, .app.compact .statusbar { display: none; }
