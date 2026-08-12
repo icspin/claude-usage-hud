@@ -53,6 +53,11 @@ body {
 .cval.warn { color: #d9a441; }
 .cval.hot { color: #d95757; }
 .cbar-row .csub { flex: 0 0 78px; font-size: 9.5px; color: var(--fg-dim); text-align: right; white-space: nowrap; }
+.csep { height: 1px; background: var(--border); margin: 7px 2px; }
+.cstack { flex: 1; display: flex; height: 11px; border-radius: 6px; overflow: hidden; background: rgba(255,255,255,0.08); }
+.cstack i { display: block; height: 100%; }
+.clegend { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; font-size: 9.5px; color: var(--fg-dim); margin-top: 3px; }
+.cdot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 4px; vertical-align: middle; }
 .cfoot { margin-top: 6px; font-size: 11px; color: var(--fg-dim); text-align: center; font-family: var(--mono); }
 .cfoot b { color: var(--accent); font-weight: 600; }
 .cnote { font-size: 9.5px; color: var(--fg-dim); text-align: center; margin-top: 3px; line-height: 1.3; }

@@ -342,6 +342,7 @@ function renderCompact() {
     }
   }
 
+  if (rows.length) rows.push('<div class="csep"></div>');
   const s = data.activeSessions[0] || data.sessions[0];
   if (s && s.context) {
     rows.push(cbar(
@@ -352,11 +353,29 @@ function renderCompact() {
     ));
   }
 
-  // Per-model spend this week — always visible, independent of the limits API.
-  const wm = Object.entries(data.weekByModel || {}).sort((a, b) => b[1] - a[1]).slice(0, 3);
-  const weekTotal = data.totals.week.cost || 1;
-  for (const [m, c] of wm) {
-    rows.push(cbar('wk · ' + shortModel(m), (c / weekTotal) * 100, money(c), ((c / weekTotal) * 100).toFixed(0) + '% of wk', ''));
+  // Per-model spend this week: one stacked bar, each model a colored segment.
+  const wmAll = Object.entries(data.weekByModel || {}).sort((a, b) => b[1] - a[1]);
+  const weekTotal = data.totals.week.cost || 0;
+  if (wmAll.length && weekTotal > 0) {
+    const top = wmAll.slice(0, 4);
+    const otherCost = wmAll.slice(4).reduce((s, [, c]) => s + c, 0);
+    if (otherCost > 0) top.push(['other', otherCost]);
+    const pickColor = makeColorPicker();
+    const colored = top.map(([m, c]) => [m, c, pickColor(m)]);
+    const segs = colored.map(([m, c, col]) =>
+      `<i style="width:${((c / weekTotal) * 100).toFixed(1)}%;background:${col}" title="${esc(shortModel(m))} ${money(c)}"></i>`
+    ).join('');
+    const legend = colored.map(([m, c, col]) =>
+      `<span><span class="cdot" style="background:${col}"></span>${esc(shortModel(m))} ${money(c)}</span>`
+    ).join('');
+    rows.push('<div class="csep"></div>');
+    rows.push(`<div class="cbar-row">
+      <span class="cname">Week by model</span>
+      <span class="cstack">${segs}</span>
+      <span class="cval">${money(weekTotal)}</span>
+      <span class="csub">&nbsp;</span>
+    </div>
+    <div class="clegend">${legend}</div>`);
   }
 
   let note = '';
@@ -384,6 +403,34 @@ function renderCompact() {
     const h = document.querySelector('.titlebar').offsetHeight + wrap.offsetHeight + 26;
     window.hud.reportHeight(Math.max(120, Math.min(430, h)));
   });
+}
+
+function baseModelColor(m) {
+  const id = String(m).toLowerCase();
+  if (id.includes('fable') || id.includes('mythos')) return '#d97757';
+  if (id.includes('opus')) return '#7aa2f7';
+  if (id.includes('sonnet')) return '#6fbf73';
+  if (id.includes('haiku')) return '#b48ead';
+  return '#7d7d7d';
+}
+
+function shade(hex, f) {
+  const n = parseInt(hex.slice(1), 16);
+  const ch = (v) => Math.max(0, Math.min(255, Math.round(v * f)));
+  return '#' + [ch(n >> 16), ch((n >> 8) & 255), ch(n & 255)]
+    .map((v) => v.toString(16).padStart(2, '0')).join('');
+}
+
+// Same-family models (opus-5 vs opus-4-8) get progressively darker shades so
+// their segments stay distinguishable in the stacked bar.
+function makeColorPicker() {
+  const familyCount = {};
+  return (m) => {
+    const base = baseModelColor(m);
+    const n = familyCount[base] || 0;
+    familyCount[base] = n + 1;
+    return n === 0 ? base : shade(base, 1 - 0.3 * n);
+  };
 }
 
 function friendlyLimitError(err) {
