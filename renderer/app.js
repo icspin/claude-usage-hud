@@ -244,14 +244,52 @@ function untilReset(ts) {
   return `${h}h ${m}m left`;
 }
 
-function cbar(name, pct, val, sub) {
-  const cls = pct >= 80 ? 'hot' : pct >= 60 ? 'warn' : '';
-  return `<div class="cbar-row">
+function cbar(name, pct, val, sub, cls, tip) {
+  if (cls === undefined) cls = pct >= 80 ? 'hot' : pct >= 60 ? 'warn' : '';
+  return `<div class="cbar-row" title="${esc(tip || '')}">
     <span class="cname">${esc(name)}</span>
     <span class="cbar"><i class="${cls}" style="width:${Math.min(100, pct).toFixed(1)}%"></i></span>
-    <span class="cval">${esc(val)}</span>
+    <span class="cval ${cls}">${esc(val)}</span>
     <span class="csub">${esc(sub || '')}</span>
   </div>`;
+}
+
+// Pace projection: given % used and the reset time, are you on track to hit
+// 100% before the window resets?
+function paceInfo(w) {
+  const windowMs = w.key && w.key.startsWith('session') ? 5 * 3600000 : 7 * 24 * 3600000;
+  const now = Date.now();
+  const start = w.resetsAt ? w.resetsAt - windowMs : null;
+  const out = { cls: '', sub: untilReset(w.resetsAt), tip: '' };
+
+  if (w.severity && w.severity !== 'normal') { out.cls = 'hot'; return out; }
+  if (w.pct >= 90) { out.cls = 'hot'; out.tip = 'nearly exhausted'; return out; }
+
+  if (start && now > start && w.pct >= 3) {
+    const elapsed = now - start;
+    // Ignore the first 10% of a window — projections from a few early
+    // minutes of heavy use are meaningless.
+    if (elapsed >= windowMs * 0.1) {
+      const rate = w.pct / elapsed; // % per ms
+      const exhaustAt = now + (100 - w.pct) / rate;
+      const projectedEnd = w.pct + rate * (w.resetsAt - now);
+      if (exhaustAt < w.resetsAt) {
+        out.cls = 'hot';
+        out.sub = '⚠ out ' + hm(exhaustAt);
+        out.tip = `At the current pace you hit 100% around ${new Date(exhaustAt).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}, before the ${untilReset(w.resetsAt)} reset.`;
+        return out;
+      }
+      if (projectedEnd >= 80) {
+        out.cls = 'warn';
+        out.tip = `On pace to end the window around ${projectedEnd.toFixed(0)}% — tight but OK.`;
+        return out;
+      }
+      out.tip = `On pace to end the window around ${projectedEnd.toFixed(0)}%.`;
+    }
+  }
+  if (w.pct >= 80) out.cls = 'hot';
+  else if (w.pct >= 60) out.cls = 'warn';
+  return out;
 }
 
 function renderCompact() {
@@ -262,7 +300,8 @@ function renderCompact() {
   if (lim && lim.ok && lim.windows.length) {
     for (const w of lim.windows) {
       if (w.key === 'seven_day_sonnet' && w.pct === 0) continue;
-      rows.push(cbar(w.label, w.pct, w.pct.toFixed(0) + '%', untilReset(w.resetsAt)));
+      const p = paceInfo(w);
+      rows.push(cbar(w.label, w.pct, w.pct.toFixed(0) + '%', p.sub, p.cls, p.tip));
     }
   } else {
     // No fresh OAuth token: approximate the 5h window from transcripts.
