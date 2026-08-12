@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('hud', {
   onPinned: (cb) => ipcRenderer.on('hud:pinned', (_e, pinned) => cb(pinned)),
   onSettings: (cb) => ipcRenderer.on('hud:settings', (_e, s) => cb(s)),
   setPinned: (pinned) => ipcRenderer.send('hud:setPinned', pinned),
+  setCompact: (compact) => ipcRenderer.send('hud:setCompact', compact),
+  onHover: (cb) => ipcRenderer.on('hud:hover', (_e, inside) => cb(inside)),
   hide: () => ipcRenderer.send('hud:hide'),
   updateSettings: (patch) => ipcRenderer.send('hud:updateSettings', patch),
   openExternal: (url) => ipcRenderer.send('hud:openExternal', url),

@@ -12,6 +12,8 @@ const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.cl
 
 const DEFAULT_SETTINGS = {
   bounds: { width: 420, height: 520 },
+  fullBounds: null,
+  compact: true,
   idleOpacity: 0.55,
   pollIntervalMs: 5000,
   alwaysOnTop: true,
@@ -20,6 +22,8 @@ const DEFAULT_SETTINGS = {
   pricing: null, // null = use DEFAULT_PRICING
 };
 
+const COMPACT_HEIGHT = 205;
+
 let win = null;
 let tray = null;
 let settings = null;
@@ -27,6 +31,10 @@ let scanner = null;
 let pollTimer = null;
 let scanning = false;
 let lastData = null;
+let lastLimits = null;
+let limitsTimer = null;
+let hoverTimer = null;
+let hoverState = false;
 
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 
@@ -53,6 +61,12 @@ function activePricing() {
   return settings.pricing || DEFAULT_PRICING;
 }
 
+function pushData() {
+  if (win && !win.isDestroyed() && lastData) {
+    win.webContents.send('usage:data', { ...lastData, limits: lastLimits });
+  }
+}
+
 async function poll() {
   if (scanning) return;
   scanning = true;
@@ -60,13 +74,98 @@ async function poll() {
     const entries = await scanner.scan();
     const meta = scanner.readSessionMeta();
     lastData = aggregate(entries, meta, activePricing());
-    if (win && !win.isDestroyed()) win.webContents.send('usage:data', lastData);
+    pushData();
     updateTrayTooltip();
   } catch (err) {
     if (win && !win.isDestroyed()) win.webContents.send('usage:error', String(err));
   } finally {
     scanning = false;
   }
+}
+
+// ---- official rate-limit utilization (same source as Claude Code's /usage) ----
+// Works whenever ~/.claude/.credentials.json holds a fresh OAuth token (the
+// claude CLI refreshes it whenever it runs). Degrades gracefully on 401.
+function parseLimits(json) {
+  const windows = [];
+  // Preferred: the `limits` array — it includes model-scoped weekly limits
+  // (e.g. a separate Fable cap) that the legacy top-level keys don't carry.
+  if (json && Array.isArray(json.limits)) {
+    for (const l of json.limits) {
+      if (typeof l.percent !== 'number') continue;
+      let label;
+      if (l.kind === 'session') label = 'Session (5h)';
+      else if (l.kind === 'weekly_all') label = 'Week (all models)';
+      else if (l.scope && l.scope.model && l.scope.model.display_name) label = `Week (${l.scope.model.display_name})`;
+      else label = l.kind;
+      windows.push({
+        key: l.kind + (label || ''),
+        label,
+        pct: Math.max(0, Math.min(100, l.percent)),
+        resetsAt: l.resets_at ? Date.parse(l.resets_at) : null,
+        severity: l.severity || 'normal',
+      });
+    }
+    if (windows.length) return windows;
+  }
+  // Fallback: legacy top-level keys.
+  const map = {
+    five_hour: 'Session (5h)',
+    seven_day: 'Week (all models)',
+    seven_day_opus: 'Week (Opus)',
+    seven_day_sonnet: 'Week (Sonnet)',
+  };
+  for (const [key, label] of Object.entries(map)) {
+    const w = json && json[key];
+    if (w && typeof w.utilization === 'number') {
+      windows.push({
+        key,
+        label,
+        pct: Math.max(0, Math.min(100, w.utilization)),
+        resetsAt: w.resets_at ? Date.parse(w.resets_at) : null,
+        severity: 'normal',
+      });
+    }
+  }
+  return windows;
+}
+
+async function fetchLimits() {
+  try {
+    const raw = fs.readFileSync(path.join(CLAUDE_DIR, '.credentials.json'), 'utf8');
+    const cred = JSON.parse(raw).claudeAiOauth;
+    if (!cred || !cred.accessToken) throw new Error('no OAuth credentials');
+    const res = await fetch('https://api.anthropic.com/api/oauth/usage', {
+      headers: {
+        Authorization: `Bearer ${cred.accessToken}`,
+        'anthropic-beta': 'oauth-2025-04-20',
+      },
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const windows = parseLimits(await res.json());
+    lastLimits = { ok: true, fetchedAt: Date.now(), windows, subscriptionType: cred.subscriptionType || null };
+  } catch (err) {
+    lastLimits = { ok: false, fetchedAt: Date.now(), error: String(err.message || err) };
+  }
+  pushData();
+}
+
+// ---- hover detection via cursor polling ----
+// CSS :hover is unreliable in click-through (pinned) mode, so the main process
+// tracks whether the cursor is inside the window and tells the renderer.
+function startHoverPolling() {
+  const { screen } = require('electron');
+  clearInterval(hoverTimer);
+  hoverTimer = setInterval(() => {
+    if (!win || win.isDestroyed() || !win.isVisible()) return;
+    const p = screen.getCursorScreenPoint();
+    const b = win.getBounds();
+    const inside = p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height;
+    if (inside !== hoverState) {
+      hoverState = inside;
+      win.webContents.send('hud:hover', inside);
+    }
+  }, 150);
 }
 
 function startPolling() {
@@ -103,7 +202,7 @@ function createWindow() {
   const b = settings.bounds || {};
   win = new BrowserWindow({
     width: b.width || 420,
-    height: b.height || 520,
+    height: settings.compact ? COMPACT_HEIGHT : (b.height || 520),
     x: b.x,
     y: b.y,
     frame: false,
@@ -134,7 +233,7 @@ function createWindow() {
   win.webContents.on('did-finish-load', () => {
     win.webContents.send('hud:settings', publicSettings());
     win.webContents.send('hud:pinned', settings.pinned);
-    if (lastData) win.webContents.send('usage:data', lastData);
+    pushData();
   });
 
   if (settings.pinned) win.setIgnoreMouseEvents(true, { forward: true });
@@ -142,6 +241,7 @@ function createWindow() {
 
 function publicSettings() {
   return {
+    compact: settings.compact,
     idleOpacity: settings.idleOpacity,
     pollIntervalMs: settings.pollIntervalMs,
     alwaysOnTop: settings.alwaysOnTop,
@@ -220,6 +320,9 @@ if (!gotLock) {
     globalShortcut.register('Control+Alt+U', () => setPinned(!settings.pinned));
 
     startPolling();
+    startHoverPolling();
+    fetchLimits();
+    limitsTimer = setInterval(fetchLimits, 60 * 1000);
   });
 }
 
@@ -232,6 +335,22 @@ ipcMain.handle('hud:getSettings', () => publicSettings());
 
 ipcMain.on('hud:setPinned', (_e, pinned) => setPinned(!!pinned));
 ipcMain.on('hud:hide', () => { if (win) win.hide(); rebuildTrayMenu(); });
+
+ipcMain.on('hud:setCompact', (_e, compact) => {
+  settings.compact = !!compact;
+  if (win && !win.isDestroyed()) {
+    const b = win.getBounds();
+    if (settings.compact) {
+      settings.fullBounds = b;
+      win.setBounds({ x: b.x, y: b.y, width: b.width, height: COMPACT_HEIGHT });
+    } else {
+      const fb = settings.fullBounds;
+      win.setBounds({ x: b.x, y: b.y, width: (fb && fb.width) || 420, height: (fb && fb.height) || 520 });
+    }
+    win.webContents.send('hud:settings', publicSettings());
+  }
+  saveSettings();
+});
 
 ipcMain.on('hud:updateSettings', (_e, patch) => {
   const restartPoll = patch.pollIntervalMs && patch.pollIntervalMs !== settings.pollIntervalMs;

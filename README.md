@@ -12,6 +12,7 @@ On a Pro/Max subscription the numbers are **API-equivalent value**, not a bill �
 
 ## Features
 
+- **Compact view (default)** — the "where am I at" bars: official **Session (5h)** and **Weekly** rate-limit utilization with reset times (including model-scoped weekly limits like a separate Fable cap), current session **context fill %**, and today/week/month spend. The official percentages come from the same endpoint Claude Code's `/usage` screen uses, via the OAuth token in `~/.claude/.credentials.json`; if the token is stale, run the `claude` CLI once to refresh it (the HUD falls back to transcript-computed numbers meanwhile). Toggle compact ⇄ full with the ⤢ button.
 - **Overview** — today / 7-day / month / all-time cost, the current 5-hour block with time remaining, and live sessions with per-session cost and **context-window fill %**
 - **Sessions** — every session with duration, token breakdown (in / out / cache-read / cache-write), and cost
 - **Models** — cost share per model, full token-type breakdown
@@ -21,7 +22,8 @@ On a Pro/Max subscription the numbers are **API-equivalent value**, not a bill �
 
 ### Overlay behavior
 
-- Translucent when idle, fades to full opacity on hover
+- Translucent when idle, fades to full opacity on hover (works in pinned mode too — hover is detected by cursor position, not CSS)
+- Left-click and drag anywhere in the window to move it
 - Drag anywhere on the title bar; resize from any edge
 - **Pin** (📌 button, tray menu, or `Ctrl+Alt+U`): the window becomes click-through — you can click straight through it while it stays visible. Unpin from the tray icon or `Ctrl+Alt+U`
 - Lives in the system tray; closing just hides it

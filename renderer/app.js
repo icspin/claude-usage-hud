@@ -231,6 +231,68 @@ function renderSettings() {
   $('#btn-reset-pricing').addEventListener('click', () => window.hud.updateSettings({ pricing: null }));
 }
 
+function untilReset(ts) {
+  if (!ts) return '';
+  const ms = ts - Date.now();
+  if (ms <= 0) return 'resetting…';
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  if (h >= 24) {
+    const d = new Date(ts);
+    return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + hm(ts);
+  }
+  return `${h}h ${m}m left`;
+}
+
+function cbar(name, pct, val, sub) {
+  const cls = pct >= 80 ? 'hot' : pct >= 60 ? 'warn' : '';
+  return `<div class="cbar-row">
+    <span class="cname">${esc(name)}</span>
+    <span class="cbar"><i class="${cls}" style="width:${Math.min(100, pct).toFixed(1)}%"></i></span>
+    <span class="cval">${esc(val)}</span>
+    <span class="csub">${esc(sub || '')}</span>
+  </div>`;
+}
+
+function renderCompact() {
+  const t = data.totals;
+  const rows = [];
+  const lim = data.limits;
+
+  if (lim && lim.ok && lim.windows.length) {
+    for (const w of lim.windows) {
+      if (w.key === 'seven_day_sonnet' && w.pct === 0) continue;
+      rows.push(cbar(w.label, w.pct, w.pct.toFixed(0) + '%', untilReset(w.resetsAt)));
+    }
+  } else {
+    // No fresh OAuth token: approximate the 5h window from transcripts.
+    const cb2 = data.currentBlock;
+    if (cb2) {
+      const elapsed = 1 - cb2.remainingMs / (5 * 3600000);
+      rows.push(cbar('5h window (time)', elapsed * 100, money(cb2.cost), dur(cb2.remainingMs) + ' left'));
+    }
+  }
+
+  const s = data.activeSessions[0] || data.sessions[0];
+  if (s && s.context) {
+    rows.push(cbar(
+      (s.active ? '● ' : '') + 'Context',
+      s.context.pct,
+      s.context.pct.toFixed(0) + '%',
+      tokens(s.context.used) + ' / ' + tokens(s.context.max)
+    ));
+  }
+
+  const note = lim && !lim.ok
+    ? `<div class="cnote">official limit %s unavailable (${esc(lim.error || 'no token')}) — run the claude CLI once to refresh the token</div>`
+    : '';
+
+  content.innerHTML = `
+    ${rows.join('')}
+    <div class="cfoot">today <b>${money(t.today.cost)}</b> · week <b>${money(t.week.cost)}</b> · month <b>${money(t.month.cost)}</b></div>
+    ${note}`;
+}
+
 const renderers = {
   overview: renderOverview,
   sessions: renderSessions,
@@ -241,6 +303,10 @@ const renderers = {
 };
 
 function render() {
+  if (settings && settings.compact) {
+    if (data) renderCompact();
+    return;
+  }
   if (activeTab === 'settings') { renderSettings(); return; }
   if (!data) return;
   renderers[activeTab]();
@@ -272,22 +338,26 @@ window.addEventListener('blur', () => window.hud.dragEnd());
 
 $('#btn-pin').addEventListener('click', () => window.hud.setPinned(true));
 $('#btn-hide').addEventListener('click', () => window.hud.hide());
+$('#btn-compact').addEventListener('click', () => window.hud.setCompact(!(settings && settings.compact)));
 
-window.hud.onData((d) => { data = d; if (activeTab !== 'settings') render(); else { $('#status-left').textContent = `updated ${hm(d.generatedAt)}`; } });
+window.hud.onData((d) => { data = d; if (settings && settings.compact) { renderCompact(); } else if (activeTab !== 'settings') render(); else { $('#status-left').textContent = `updated ${hm(d.generatedAt)}`; } });
 window.hud.onError((msg) => { $('#status-left').textContent = 'error: ' + msg; });
 window.hud.onPinned((pinned) => {
   $('#app').classList.toggle('pinned', pinned);
   $('#pin-hint').classList.toggle('hidden', !pinned);
 });
+window.hud.onHover((inside) => $('#app').classList.toggle('hot', inside));
 window.hud.onSettings((s) => {
   settings = s;
   document.documentElement.style.setProperty('--idle-opacity', s.idleOpacity);
-  if (activeTab === 'settings') renderSettings();
+  $('#app').classList.toggle('compact', !!s.compact);
+  render();
 });
 
 (async () => {
   settings = await window.hud.getSettings();
   document.documentElement.style.setProperty('--idle-opacity', settings.idleOpacity);
+  $('#app').classList.toggle('compact', !!settings.compact);
   const d = await window.hud.getData();
   if (d) { data = d; render(); }
 })();
