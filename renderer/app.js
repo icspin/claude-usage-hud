@@ -352,6 +352,13 @@ function renderCompact() {
     ));
   }
 
+  // Per-model spend this week — always visible, independent of the limits API.
+  const wm = Object.entries(data.weekByModel || {}).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const weekTotal = data.totals.week.cost || 1;
+  for (const [m, c] of wm) {
+    rows.push(cbar('wk · ' + shortModel(m), (c / weekTotal) * 100, money(c), ((c / weekTotal) * 100).toFixed(0) + '% of wk', ''));
+  }
+
   let note = '';
   if (lim && !lim.ok) {
     note = `<div class="cnote">official limit %s unavailable — ${esc(friendlyLimitError(lim.error))}</div>`;
@@ -366,6 +373,12 @@ function renderCompact() {
     <div class="cfoot">today <b>${money(t.today.cost)}</b> · week <b>${money(t.week.cost)}</b> · month <b>${money(t.month.cost)}</b></div>
     ${savings}
     ${note}`;
+
+  // Fit the compact window to its content.
+  requestAnimationFrame(() => {
+    const h = document.querySelector('.titlebar').offsetHeight + content.scrollHeight + 10;
+    window.hud.reportHeight(Math.max(140, Math.min(430, h)));
+  });
 }
 
 function friendlyLimitError(err) {

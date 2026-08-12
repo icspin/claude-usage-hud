@@ -44,6 +44,7 @@ function aggregate(entries, sessionMeta, pricing, now = Date.now()) {
     allTime: emptyBucket(),
   };
   const todayByModel = {};
+  const weekByModel = {};
   const perModel = {};
   const sessions = new Map();
   const daily = new Map();
@@ -58,7 +59,10 @@ function aggregate(entries, sessionMeta, pricing, now = Date.now()) {
       addTo(totals.today, e, cost);
       todayByModel[e.model] = (todayByModel[e.model] || 0) + cost;
     }
-    if (e.ts >= weekStart) addTo(totals.week, e, cost);
+    if (e.ts >= weekStart) {
+      addTo(totals.week, e, cost);
+      weekByModel[e.model] = (weekByModel[e.model] || 0) + cost;
+    }
     if (e.ts >= monthStart) addTo(totals.month, e, cost);
 
     let pm = perModel[e.model];
@@ -134,6 +138,7 @@ function aggregate(entries, sessionMeta, pricing, now = Date.now()) {
     generatedAt: now,
     totals,
     todayByModel,
+    weekByModel,
     perModel,
     sessions: sessionList,
     activeSessions: sessionList.filter((s) => s.active),

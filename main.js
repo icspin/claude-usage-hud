@@ -146,7 +146,7 @@ async function fetchLimits() {
       },
     });
     if (res.status === 429) {
-      limitsBackoffUntil = Date.now() + 10 * 60 * 1000; // back off 10 min
+      limitsBackoffUntil = Date.now() + 15 * 60 * 1000; // back off 15 min
       throw new Error('HTTP 429');
     }
     if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -349,7 +349,7 @@ if (!gotLock) {
       if (c && c.ok) { c.stale = true; lastLimits = c; }
     } catch { /* no cache yet */ }
     fetchLimits();
-    limitsTimer = setInterval(fetchLimits, 120 * 1000);
+    limitsTimer = setInterval(fetchLimits, 5 * 60 * 1000);
   });
 }
 
@@ -362,6 +362,16 @@ ipcMain.handle('hud:getSettings', () => publicSettings());
 
 ipcMain.on('hud:setPinned', (_e, pinned) => setPinned(!!pinned));
 ipcMain.on('hud:hide', () => { if (win) win.hide(); rebuildTrayMenu(); });
+
+ipcMain.on('hud:reportHeight', (_e, h) => {
+  if (!settings.compact || !win || win.isDestroyed()) return;
+  const height = Math.round(h);
+  if (!Number.isFinite(height) || height < 100 || height > 500) return;
+  const b = win.getBounds();
+  if (Math.abs(b.height - height) > 4) {
+    win.setBounds({ x: b.x, y: b.y, width: b.width, height });
+  }
+});
 
 ipcMain.on('hud:setCompact', (_e, compact) => {
   settings.compact = !!compact;
