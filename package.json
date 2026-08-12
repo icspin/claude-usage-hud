@@ -17,15 +17,18 @@
   "build": {
     "appId": "com.icspin.claudeusagehud",
     "productName": "Claude Usage HUD",
-    "artifactName": "${productName}-${version}-${arch}.${ext}",
     "win": {
       "target": ["nsis", "portable"],
       "icon": "assets/icon.png"
     },
     "nsis": {
+      "artifactName": "${productName}-Setup-${version}.${ext}",
       "oneClick": true,
       "perMachine": false,
       "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}"
     },
     "files": [
       "main.js",

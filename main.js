@@ -248,3 +248,34 @@ ipcMain.on('hud:updateSettings', (_e, patch) => {
 ipcMain.on('hud:openExternal', (_e, url) => {
   if (typeof url === 'string' && /^https?:\/\//.test(url)) shell.openExternal(url);
 });
+
+// Drag-anywhere: the renderer reports mousedown on non-interactive areas; we
+// follow the cursor until mouseup. A 3px threshold keeps plain clicks put.
+let drag = null;
+ipcMain.on('hud:dragStart', () => {
+  if (!win || win.isDestroyed() || drag) return;
+  const { screen } = require('electron');
+  const pt = screen.getCursorScreenPoint();
+  const b = win.getBounds();
+  drag = {
+    cx: pt.x, cy: pt.y, wx: b.x, wy: b.y, moved: false,
+    timer: setInterval(() => {
+      if (!drag || !win || win.isDestroyed()) return;
+      const p = screen.getCursorScreenPoint();
+      const dx = p.x - drag.cx;
+      const dy = p.y - drag.cy;
+      if (!drag.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+      drag.moved = true;
+      win.setPosition(drag.wx + dx, drag.wy + dy);
+    }, 16),
+  };
+});
+ipcMain.on('hud:dragEnd', () => {
+  if (!drag) return;
+  clearInterval(drag.timer);
+  drag = null;
+  if (win && !win.isDestroyed()) {
+    settings.bounds = win.getBounds();
+    saveSettings();
+  }
+});

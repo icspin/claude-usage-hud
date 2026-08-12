@@ -258,6 +258,18 @@ document.querySelectorAll('.tab').forEach((btn) => {
   });
 });
 
+// Drag-anywhere: any non-interactive spot moves the window (scrollbar excluded).
+const INTERACTIVE = 'button, input, textarea, select, a';
+document.addEventListener('mousedown', (e) => {
+  if (e.button !== 0) return;
+  if (e.target.closest(INTERACTIVE)) return;
+  const sc = e.target.closest('.content');
+  if (sc && e.clientX > sc.getBoundingClientRect().right - 16) return; // scrollbar
+  window.hud.dragStart();
+});
+document.addEventListener('mouseup', () => window.hud.dragEnd());
+window.addEventListener('blur', () => window.hud.dragEnd());
+
 $('#btn-pin').addEventListener('click', () => window.hud.setPinned(true));
 $('#btn-hide').addEventListener('click', () => window.hud.hide());
 
