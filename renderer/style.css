@@ -43,7 +43,7 @@ body {
 /* compact mode hides the tab chrome */
 .app.compact .tabs, .app.compact .statusbar { display: none; }
 
-.cbar-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.cbar-row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
 .cbar-row .cname { flex: 0 0 96px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--fg-dim); white-space: nowrap; overflow: hidden; }
 .cbar { flex: 1; height: 11px; background: rgba(255,255,255,0.08); border-radius: 6px; overflow: hidden; }
 .cbar > i { display: block; height: 100%; border-radius: 6px; background: var(--green); transition: width 0.4s ease; }
@@ -53,9 +53,9 @@ body {
 .cval.warn { color: #d9a441; }
 .cval.hot { color: #d95757; }
 .cbar-row .csub { flex: 0 0 78px; font-size: 9.5px; color: var(--fg-dim); text-align: right; white-space: nowrap; }
-.cfoot { margin-top: 9px; font-size: 11px; color: var(--fg-dim); text-align: center; font-family: var(--mono); }
+.cfoot { margin-top: 6px; font-size: 11px; color: var(--fg-dim); text-align: center; font-family: var(--mono); }
 .cfoot b { color: var(--accent); font-weight: 600; }
-.cnote { font-size: 9.5px; color: var(--fg-dim); text-align: center; margin-top: 5px; }
+.cnote { font-size: 9.5px; color: var(--fg-dim); text-align: center; margin-top: 3px; line-height: 1.3; }
 
 /* ---- titlebar ---- */
 .titlebar {

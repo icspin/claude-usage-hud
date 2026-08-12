@@ -368,16 +368,21 @@ function renderCompact() {
 
   const savings = savingsLine();
 
-  content.innerHTML = `
+  content.innerHTML = `<div id="cwrap">
     ${rows.join('')}
     <div class="cfoot">today <b>${money(t.today.cost)}</b> · week <b>${money(t.week.cost)}</b> · month <b>${money(t.month.cost)}</b></div>
     ${savings}
-    ${note}`;
+    ${note}
+  </div>`;
 
-  // Fit the compact window to its content.
+  // Fit the compact window to its content. Measure the inner wrapper — the
+  // content container flex-stretches to the window, so measuring it directly
+  // would let the window grow but never shrink.
   requestAnimationFrame(() => {
-    const h = document.querySelector('.titlebar').offsetHeight + content.scrollHeight + 10;
-    window.hud.reportHeight(Math.max(140, Math.min(430, h)));
+    const wrap = $('#cwrap');
+    if (!wrap) return;
+    const h = document.querySelector('.titlebar').offsetHeight + wrap.offsetHeight + 26;
+    window.hud.reportHeight(Math.max(120, Math.min(430, h)));
   });
 }
 
