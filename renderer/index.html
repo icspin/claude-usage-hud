@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+  <title>Claude Usage HUD</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app" class="app">
+    <div class="titlebar">
+      <span class="title">Claude Usage HUD</span>
+      <span class="titlebar-spacer"></span>
+      <span id="pin-hint" class="pin-hint hidden">pinned · Ctrl+Alt+U to unpin</span>
+      <button id="btn-pin" class="tb-btn" title="Pin: click-through mode (Ctrl+Alt+U to unpin)">&#128204;</button>
+      <button id="btn-hide" class="tb-btn" title="Hide to tray">&#8211;</button>
+    </div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="overview">Overview</button>
+      <button class="tab" data-tab="sessions">Sessions</button>
+      <button class="tab" data-tab="models">Models</button>
+      <button class="tab" data-tab="daily">Daily</button>
+      <button class="tab" data-tab="blocks">5h Blocks</button>
+      <button class="tab" data-tab="settings">&#9881;</button>
+    </nav>
+    <main id="content" class="content">
+      <div class="loading">Scanning transcripts&hellip;</div>
+    </main>
+    <footer class="statusbar">
+      <span id="status-left">&nbsp;</span>
+      <span id="status-right"></span>
+    </footer>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
