@@ -41,11 +41,16 @@ let hoverState = false;
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 
 function loadSettings() {
+  let s;
   try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(settingsPath(), 'utf8')) };
+    s = { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(settingsPath(), 'utf8')) };
   } catch {
-    return { ...DEFAULT_SETTINGS };
+    s = { ...DEFAULT_SETTINGS };
   }
+  // Pinning is a transient mode, not a preference: always start interactive so
+  // the window can never come back click-through and unreachable.
+  s.pinned = false;
+  return s;
 }
 
 let saveTimer = null;
