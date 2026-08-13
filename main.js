@@ -133,12 +133,19 @@ function parseLimits(json) {
 }
 
 let limitsBackoffUntil = 0;
+let limitsBackoffMin = 0;
+let lastCredMtime = 0;
+
 async function fetchLimits() {
   if (Date.now() < limitsBackoffUntil) return;
   try {
-    const raw = fs.readFileSync(path.join(CLAUDE_DIR, '.credentials.json'), 'utf8');
+    const credPath = path.join(CLAUDE_DIR, '.credentials.json');
+    const raw = fs.readFileSync(credPath, 'utf8');
     const cred = JSON.parse(raw).claudeAiOauth;
     if (!cred || !cred.accessToken) throw new Error('no OAuth credentials');
+    // Don't spend a request on a token we can already see is expired — it
+    // can't succeed, and failed calls still count against the rate limit.
+    if (cred.expiresAt && Date.now() >= cred.expiresAt) throw new Error('token expired');
     const res = await fetch('https://api.anthropic.com/api/oauth/usage', {
       headers: {
         Authorization: `Bearer ${cred.accessToken}`,
@@ -146,9 +153,13 @@ async function fetchLimits() {
       },
     });
     if (res.status === 429) {
-      limitsBackoffUntil = Date.now() + 15 * 60 * 1000; // back off 15 min
+      // Escalating backoff: 15 → 30 → 60 min, so a sustained limit doesn't
+      // keep us knocking every quarter hour.
+      limitsBackoffMin = Math.min(60, limitsBackoffMin ? limitsBackoffMin * 2 : 15);
+      limitsBackoffUntil = Date.now() + limitsBackoffMin * 60 * 1000;
       throw new Error('HTTP 429');
     }
+    limitsBackoffMin = 0;
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const windows = parseLimits(await res.json());
     lastLimits = { ok: true, fetchedAt: Date.now(), windows, subscriptionType: cred.subscriptionType || null };
@@ -164,6 +175,26 @@ async function fetchLimits() {
     }
   }
   pushData();
+}
+
+// A refreshed login (any `claude` CLI run) should recover the bars immediately
+// rather than waiting out a backoff.
+function watchCredentials() {
+  const credPath = path.join(CLAUDE_DIR, '.credentials.json');
+  setInterval(() => {
+    let st;
+    try {
+      st = fs.statSync(credPath);
+    } catch {
+      return;
+    }
+    if (lastCredMtime && st.mtimeMs !== lastCredMtime) {
+      limitsBackoffUntil = 0;
+      limitsBackoffMin = 0;
+      fetchLimits();
+    }
+    lastCredMtime = st.mtimeMs;
+  }, 15 * 1000);
 }
 
 // ---- hover detection via cursor polling ----
@@ -350,6 +381,7 @@ if (!gotLock) {
     } catch { /* no cache yet */ }
     fetchLimits();
     limitsTimer = setInterval(fetchLimits, 5 * 60 * 1000);
+    watchCredentials();
   });
 }
 

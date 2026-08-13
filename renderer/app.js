@@ -264,6 +264,9 @@ function renderSettings() {
 function untilReset(ts) {
   if (!ts) return '';
   const ms = ts - Date.now();
+  // A reset time more than a few minutes in the past means our data predates
+  // the reset — say so instead of claiming it's mid-reset forever.
+  if (ms < -5 * 60 * 1000) return 'stale';
   if (ms <= 0) return 'resetting…';
   const h = Math.floor(ms / 3600000);
   const m = Math.floor((ms % 3600000) / 60000);
@@ -330,8 +333,15 @@ function renderCompact() {
   if (lim && lim.ok && lim.windows.length) {
     for (const w of lim.windows) {
       if (w.key === 'seven_day_sonnet' && w.pct === 0) continue;
+      const expired = w.resetsAt && w.resetsAt < Date.now();
+      // Once a window has reset, the cached number is meaningless — show the
+      // bar as unknown rather than as a stale-but-plausible percentage.
+      if (expired) {
+        rows.push(cbar(w.label, 0, '—', 'stale', 'dim', 'This window reset since the last successful refresh.'));
+        continue;
+      }
       const p = paceInfo(w);
-      rows.push(cbar(w.label, w.pct, w.pct.toFixed(0) + '%', p.sub, p.cls, p.tip));
+      rows.push(cbar(w.label, w.pct, w.pct.toFixed(0) + '%', p.sub, lim.stale ? 'dim' : p.cls, p.tip));
     }
   } else {
     // No fresh OAuth token: approximate the 5h window from transcripts.
@@ -389,7 +399,8 @@ function renderCompact() {
 
   content.innerHTML = `<div id="cwrap">
     ${rows.join('')}
-    <div class="cfoot">today <b>${money(t.today.cost)}</b> · week <b>${money(t.week.cost)}</b> · month <b>${money(t.month.cost)}</b></div>
+    <div class="csep"></div>
+    ${costGrid()}
     ${savings}
     ${note}
   </div>`;
@@ -431,6 +442,45 @@ function makeColorPicker() {
     familyCount[base] = n + 1;
     return n === 0 ? base : shade(base, 1 - 0.3 * n);
   };
+}
+
+// Today / week / month, each with a second line of context: how today compares
+// to the recent daily average, the week's daily burn, and where the month lands
+// if the current pace holds.
+function costGrid() {
+  const t = data.totals;
+  const now = new Date();
+
+  // Daily average over the last 7 days, excluding today (a partial day would
+  // drag the baseline down and make every morning look like a spike).
+  const past = (data.daily || []).filter((d) => d.date !== dayKeyLocal(now)).slice(0, 7);
+  const avgDay = past.length ? past.reduce((s, d) => s + d.cost, 0) / past.length : 0;
+  const todayDelta = avgDay > 0
+    ? `${t.today.cost >= avgDay ? '▲' : '▼'} ${Math.abs((t.today.cost / avgDay - 1) * 100).toFixed(0)}% vs avg`
+    : '';
+
+  const weekDays = Math.min(7, past.length + 1);
+  const perDay = weekDays > 0 ? t.week.cost / weekDays : 0;
+
+  const dom = now.getDate();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const projected = dom > 0 ? (t.month.cost / dom) * daysInMonth : 0;
+
+  const cell = (label, value, sub) => `<div class="ccell">
+    <div class="clabel">${esc(label)}</div>
+    <div class="cvalue">${esc(value)}</div>
+    <div class="csubtle">${esc(sub)}</div>
+  </div>`;
+
+  return `<div class="cgrid">
+    ${cell('Today', money(t.today.cost), todayDelta || `${t.today.messages} msgs`)}
+    ${cell('Week', money(t.week.cost), perDay > 0 ? money(perDay) + '/day' : '')}
+    ${cell('Month', money(t.month.cost), projected > 0 ? money(projected) + ' proj' : '')}
+  </div>`;
+}
+
+function dayKeyLocal(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function friendlyLimitError(err) {
