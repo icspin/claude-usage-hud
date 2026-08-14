@@ -22,6 +22,7 @@ const DEFAULT_SETTINGS = {
   pricing: null, // null = use DEFAULT_PRICING
   planPrice: 200, // monthly subscription price for the savings line; 0 hides it
   planName: 'Max 20x',
+  autoRefreshToken: true,
 };
 
 const COMPACT_HEIGHT = 222;
@@ -148,9 +149,15 @@ async function fetchLimits() {
     const raw = fs.readFileSync(credPath, 'utf8');
     const cred = JSON.parse(raw).claudeAiOauth;
     if (!cred || !cred.accessToken) throw new Error('no OAuth credentials');
-    // Don't spend a request on a token we can already see is expired — it
-    // can't succeed, and failed calls still count against the rate limit.
-    if (cred.expiresAt && Date.now() >= cred.expiresAt) throw new Error('token expired');
+    // Renew a little before expiry so the bars never actually go stale.
+    if (cred.expiresAt && Date.now() >= cred.expiresAt - 10 * 60 * 1000) {
+      const refreshing = refreshTokenViaCli();
+      // Don't spend a request on a token we can already see is expired — it
+      // can't succeed, and failed calls still count against the rate limit.
+      if (Date.now() >= cred.expiresAt) {
+        throw new Error(refreshing ? 'token expired — refreshing' : 'token expired');
+      }
+    }
     const res = await fetch('https://api.anthropic.com/api/oauth/usage', {
       headers: {
         Authorization: `Bearer ${cred.accessToken}`,
@@ -180,6 +187,52 @@ async function fetchLimits() {
     }
   }
   pushData();
+}
+
+// Refreshing the OAuth token by invoking the Claude CLI, rather than using the
+// refresh token directly: the CLI owns credential rotation, so this can't race
+// with Claude Code or invalidate its login. Costs one trivial Haiku call.
+let lastRefreshAttempt = 0;
+const REFRESH_COOLDOWN_MS = 30 * 60 * 1000;
+
+function findClaudeCli() {
+  const candidates = [
+    path.join(os.homedir(), '.local', 'bin', 'claude.exe'),
+    path.join(os.homedir(), '.local', 'bin', 'claude'),
+  ];
+  for (const c of candidates) {
+    try {
+      if (fs.statSync(c).isFile()) return c;
+    } catch { /* try next */ }
+  }
+  return null; // fall back to PATH lookup by the shell
+}
+
+function refreshTokenViaCli() {
+  if (!settings.autoRefreshToken) return false;
+  if (Date.now() - lastRefreshAttempt < REFRESH_COOLDOWN_MS) return false;
+  lastRefreshAttempt = Date.now();
+
+  const cli = findClaudeCli();
+  if (!cli) return false;
+
+  const { execFile } = require('child_process');
+  const child = execFile(
+    cli,
+    ['-p', 'ok', '--model', 'claude-haiku-4-5'],
+    { timeout: 90 * 1000, windowsHide: true, cwd: os.homedir() },
+    (err) => {
+      if (!err) {
+        // The credentials watcher will notice the rewritten file, but clear the
+        // backoff here so recovery isn't delayed by an in-flight 429 window.
+        limitsBackoffUntil = 0;
+        limitsBackoffMin = 0;
+        setTimeout(fetchLimits, 1500);
+      }
+    }
+  );
+  child.unref();
+  return true;
 }
 
 // A refreshed login (any `claude` CLI run) should recover the bars immediately
@@ -299,6 +352,8 @@ function publicSettings() {
     compact: settings.compact,
     planPrice: settings.planPrice,
     planName: settings.planName,
+    autoRefreshToken: settings.autoRefreshToken,
+    claudeCliFound: !!findClaudeCli(),
     idleOpacity: settings.idleOpacity,
     pollIntervalMs: settings.pollIntervalMs,
     alwaysOnTop: settings.alwaysOnTop,
@@ -343,6 +398,21 @@ function rebuildTrayMenu() {
     },
     { type: 'separator' },
     { label: 'Rescan now', click: poll },
+    {
+      label: 'Reset size & position',
+      click: () => {
+        if (!win || win.isDestroyed()) return;
+        const { screen } = require('electron');
+        const wa = screen.getPrimaryDisplay().workArea;
+        const width = 470;
+        const height = settings.compact ? COMPACT_HEIGHT : 520;
+        win.setBounds({ x: wa.x + wa.width - width - 40, y: wa.y + 40, width, height });
+        settings.bounds = win.getBounds();
+        settings.fullBounds = null;
+        saveSettings();
+        win.show();
+      },
+    },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() },
   ]));
@@ -402,6 +472,9 @@ ipcMain.on('hud:hide', () => { if (win) win.hide(); rebuildTrayMenu(); });
 
 ipcMain.on('hud:reportHeight', (_e, h) => {
   if (!settings.compact || !win || win.isDestroyed()) return;
+  // Never resize mid-drag or mid-native-resize: setBounds racing the window
+  // manager is what let the frame creep larger on every interaction.
+  if (drag || win.isMinimized()) return;
   const height = Math.round(h);
   if (!Number.isFinite(height) || height < 100 || height > 500) return;
   const b = win.getBounds();

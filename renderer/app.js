@@ -219,6 +219,8 @@ function renderSettings() {
         <input id="set-ontop" type="checkbox" ${s.alwaysOnTop ? 'checked' : ''} /></div>
       <div class="setting-row"><label>Launch at login</label>
         <input id="set-login" type="checkbox" ${s.launchAtLogin ? 'checked' : ''} /></div>
+      <div class="setting-row"><label>Auto-renew login token${s.claudeCliFound ? '' : ' (claude CLI not found)'}</label>
+        <input id="set-autorefresh" type="checkbox" ${s.autoRefreshToken ? 'checked' : ''} ${s.claudeCliFound ? '' : 'disabled'} /></div>
       <div class="setting-row"><label>Plan name</label>
         <input id="set-planname" type="text" style="width:110px;background:rgba(255,255,255,0.07);border:1px solid var(--border);color:var(--fg);border-radius:6px;padding:3px 6px;" value="${esc(s.planName || '')}" /></div>
       <div class="setting-row"><label>Plan price $/mo (0 = hide savings)</label>
@@ -248,6 +250,8 @@ function renderSettings() {
   });
   $('#set-ontop').addEventListener('change', (e) => window.hud.updateSettings({ alwaysOnTop: e.target.checked }));
   $('#set-login').addEventListener('change', (e) => window.hud.updateSettings({ launchAtLogin: e.target.checked }));
+  const ar = $('#set-autorefresh');
+  if (ar) ar.addEventListener('change', (e) => window.hud.updateSettings({ autoRefreshToken: e.target.checked }));
   $('#set-planname').addEventListener('change', (e) => window.hud.updateSettings({ planName: e.target.value || 'Plan' }));
   $('#set-planprice').addEventListener('change', (e) => window.hud.updateSettings({ planPrice: Math.max(0, parseInt(e.target.value, 10) || 0) }));
   $('#btn-save-pricing').addEventListener('click', () => {
@@ -485,8 +489,13 @@ function dayKeyLocal(d) {
 
 function friendlyLimitError(err) {
   const e = String(err || '');
-  if (e.includes('401')) return 'login token expired; run the claude CLI once to refresh it';
-  if (e.includes('429')) return 'rate-limited by the API, retrying in a few minutes';
+  if (e.includes('refreshing')) return 'renewing login token…';
+  if (e.includes('expired') || e.includes('401')) {
+    return settings && settings.autoRefreshToken
+      ? 'login token expired, renewing…'
+      : 'login token expired; run the claude CLI once to refresh it';
+  }
+  if (e.includes('429')) return 'rate-limited by the API, retrying shortly';
   if (e.includes('credentials')) return 'no Claude login found';
   return e;
 }
@@ -535,10 +544,18 @@ document.querySelectorAll('.tab').forEach((btn) => {
 });
 
 // Drag-anywhere: any non-interactive spot moves the window (scrollbar excluded).
+// The outer EDGE_PX band belongs to Windows' native resize border — starting a
+// custom move there makes the two fight and the window grows on every drag.
 const INTERACTIVE = 'button, input, textarea, select, a';
+const EDGE_PX = 8;
 document.addEventListener('mousedown', (e) => {
   if (e.button !== 0) return;
   if (e.target.closest(INTERACTIVE)) return;
+  if (
+    e.clientX < EDGE_PX || e.clientY < EDGE_PX ||
+    e.clientX > window.innerWidth - EDGE_PX ||
+    e.clientY > window.innerHeight - EDGE_PX
+  ) return;
   const sc = e.target.closest('.content');
   if (sc && e.clientX > sc.getBoundingClientRect().right - 16) return; // scrollbar
   window.hud.dragStart();
