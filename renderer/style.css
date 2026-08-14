@@ -37,8 +37,11 @@ body {
 }
 .app.hot { opacity: 1; }
 /* Pinned = click-through: stay at idle transparency even under the cursor,
-   so you can see (and click) what's behind it. */
+   so you can see (and click) what's behind it. Mouse-move events are still
+   forwarded (they drive nothing here now), so kill pointer-events outright —
+   otherwise buttons light up on hover while clicks pass straight through. */
 .app.pinned, .app.pinned.hot { opacity: var(--idle-opacity); }
+.app.pinned { pointer-events: none; }
 
 /* compact mode hides the tab chrome */
 .app.compact .tabs, .app.compact .statusbar { display: none; }

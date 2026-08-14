@@ -536,9 +536,7 @@ function render() {
 // ---------- wiring ----------
 document.querySelectorAll('.tab').forEach((btn) => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    activeTab = btn.dataset.tab;
+    setActiveTab(btn.dataset.tab);
     render();
   });
 });
@@ -566,6 +564,22 @@ window.addEventListener('blur', () => window.hud.dragEnd());
 $('#btn-pin').addEventListener('click', () => window.hud.setPinned(true));
 $('#btn-hide').addEventListener('click', () => window.hud.hide());
 $('#btn-compact').addEventListener('click', () => window.hud.setCompact(!(settings && settings.compact)));
+
+// Gear reaches Settings from either view; from compact it expands to the full
+// window first, since the settings panel doesn't fit the compact frame.
+$('#btn-settings').addEventListener('click', () => {
+  setActiveTab('settings');
+  if (settings && settings.compact) {
+    window.hud.setCompact(false);
+  } else {
+    render();
+  }
+});
+
+function setActiveTab(name) {
+  activeTab = name;
+  document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
+}
 
 window.hud.onData((d) => { data = d; if (settings && settings.compact) { renderCompact(); } else if (activeTab !== 'settings') render(); else { $('#status-left').textContent = `updated ${hm(d.generatedAt)}`; } });
 window.hud.onError((msg) => { $('#status-left').textContent = 'error: ' + msg; });
