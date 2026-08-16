@@ -78,6 +78,9 @@ body {
   align-items: center;
   gap: 6px;
   padding: 7px 10px;
+  /* Window moving is handled entirely by the native drag region. Scripting it
+     (setBounds/setPosition on a timer) corrupted the window size on monitors
+     whose scale factor differs from the primary display's. */
   -webkit-app-region: drag;
   background: rgba(255, 255, 255, 0.04);
   border-bottom: 1px solid var(--border);
@@ -86,8 +89,11 @@ body {
 .titlebar-spacer { flex: 1; }
 .pin-hint { font-size: 10px; color: var(--fg-dim); }
 .hidden { display: none !important; }
+/* Compact view has nothing to click or scroll, so the whole surface drags. */
+.app.compact .content { -webkit-app-region: drag; }
+button, input, textarea, select, a, .tab, .cstack, table { -webkit-app-region: no-drag; }
+
 .tb-btn {
-  -webkit-app-region: no-drag;
   background: none;
   border: none;
   color: var(--fg-dim);

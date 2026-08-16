@@ -16,6 +16,4 @@ contextBridge.exposeInMainWorld('hud', {
   hide: () => ipcRenderer.send('hud:hide'),
   updateSettings: (patch) => ipcRenderer.send('hud:updateSettings', patch),
   openExternal: (url) => ipcRenderer.send('hud:openExternal', url),
-  dragStart: () => ipcRenderer.send('hud:dragStart'),
-  dragEnd: () => ipcRenderer.send('hud:dragEnd'),
 });

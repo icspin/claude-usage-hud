@@ -51,7 +51,24 @@ function loadSettings() {
   // Pinning is a transient mode, not a preference: always start interactive so
   // the window can never come back click-through and unreachable.
   s.pinned = false;
+  s.bounds = sanitizeBounds(s.bounds);
+  s.fullBounds = s.fullBounds ? sanitizeBounds(s.fullBounds) : null;
   return s;
+}
+
+const MIN_W = 280, MAX_W = 900, MIN_H = 120, MAX_H = 900;
+const unsafeDisplays = new Set();
+
+// A size that got corrupted (see the drag/DPI notes below) must not persist
+// across restarts, so clamp whatever we read back from disk.
+function sanitizeBounds(b) {
+  if (!b || typeof b !== 'object') return { width: 470, height: 240 };
+  const num = (v, d) => (Number.isFinite(v) ? v : d);
+  return {
+    ...b,
+    width: Math.max(MIN_W, Math.min(MAX_W, Math.round(num(b.width, 470)))),
+    height: Math.max(MIN_H, Math.min(MAX_H, Math.round(num(b.height, 240)))),
+  };
 }
 
 let saveTimer = null;
@@ -325,6 +342,7 @@ function createWindow() {
     },
   });
   if (settings.alwaysOnTop) win.setAlwaysOnTop(true, 'screen-saver');
+  ensureOnScreen();
   win.once('ready-to-show', () => { if (win && !win.isDestroyed()) win.showInactive(); });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
@@ -345,6 +363,32 @@ function createWindow() {
   });
 
   if (settings.pinned) win.setIgnoreMouseEvents(true, { forward: true });
+}
+
+// A monitor can be unplugged, or saved coordinates can land in a gap between
+// displays. Either way the window would be invisible with no way to reach it,
+// so drop it back onto the primary display.
+function ensureOnScreen() {
+  if (!win || win.isDestroyed()) return;
+  const { screen } = require('electron');
+  const b = win.getBounds();
+  const visible = screen.getAllDisplays().some((d) => {
+    const a = d.workArea;
+    return (
+      b.x < a.x + a.width && b.x + b.width > a.x &&
+      b.y < a.y + a.height && b.y + b.height > a.y
+    );
+  });
+  if (visible) return;
+  const wa = screen.getPrimaryDisplay().workArea;
+  win.setBounds({
+    x: wa.x + wa.width - b.width - 40,
+    y: wa.y + 40,
+    width: b.width,
+    height: b.height,
+  });
+  settings.bounds = win.getBounds();
+  saveSettings();
 }
 
 function publicSettings() {
@@ -471,15 +515,27 @@ ipcMain.on('hud:setPinned', (_e, pinned) => setPinned(!!pinned));
 ipcMain.on('hud:hide', () => { if (win) win.hide(); rebuildTrayMenu(); });
 
 ipcMain.on('hud:reportHeight', (_e, h) => {
-  if (!settings.compact || !win || win.isDestroyed()) return;
-  // Never resize mid-drag or mid-native-resize: setBounds racing the window
-  // manager is what let the frame creep larger on every interaction.
-  if (drag || win.isMinimized()) return;
+  if (!settings.compact || !win || win.isDestroyed() || win.isMinimized()) return;
   const height = Math.round(h);
-  if (!Number.isFinite(height) || height < 100 || height > 500) return;
+  if (!Number.isFinite(height) || height < MIN_H || height > MAX_H) return;
+
   const b = win.getBounds();
-  if (Math.abs(b.height - height) > 4) {
-    win.setBounds({ x: b.x, y: b.y, width: b.width, height });
+  if (Math.abs(b.height - height) <= 4) return;
+
+  const { screen } = require('electron');
+  const dispId = screen.getDisplayMatching(b).id;
+  // Height-only resizes are normally safe. On some mixed-DPI setups Chromium
+  // applies the new bounds in the wrong coordinate space and the width shifts
+  // as a side effect — which is how the frame used to creep. Detect that once
+  // per display, undo it, and stop auto-fitting there rather than compounding.
+  if (unsafeDisplays.has(dispId)) return;
+
+  win.setBounds({ x: b.x, y: b.y, width: b.width, height });
+
+  const after = win.getBounds();
+  if (after.width !== b.width) {
+    unsafeDisplays.add(dispId);
+    win.setBounds({ x: b.x, y: b.y, width: b.width, height: after.height });
   }
 });
 
@@ -515,33 +571,7 @@ ipcMain.on('hud:openExternal', (_e, url) => {
   if (typeof url === 'string' && /^https?:\/\//.test(url)) shell.openExternal(url);
 });
 
-// Drag-anywhere: the renderer reports mousedown on non-interactive areas; we
-// follow the cursor until mouseup. A 3px threshold keeps plain clicks put.
-let drag = null;
-ipcMain.on('hud:dragStart', () => {
-  if (!win || win.isDestroyed() || drag) return;
-  const { screen } = require('electron');
-  const pt = screen.getCursorScreenPoint();
-  const b = win.getBounds();
-  drag = {
-    cx: pt.x, cy: pt.y, wx: b.x, wy: b.y, moved: false,
-    timer: setInterval(() => {
-      if (!drag || !win || win.isDestroyed()) return;
-      const p = screen.getCursorScreenPoint();
-      const dx = p.x - drag.cx;
-      const dy = p.y - drag.cy;
-      if (!drag.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
-      drag.moved = true;
-      win.setPosition(drag.wx + dx, drag.wy + dy);
-    }, 16),
-  };
-});
-ipcMain.on('hud:dragEnd', () => {
-  if (!drag) return;
-  clearInterval(drag.timer);
-  drag = null;
-  if (win && !win.isDestroyed()) {
-    settings.bounds = win.getBounds();
-    saveSettings();
-  }
-});
+// Window moving is native (-webkit-app-region: drag). Nothing is scripted here
+// on purpose: setBounds/setPosition on a window sitting on a display whose
+// scale factor differs from the primary's rescales the frame, which is what
+// made the window creep larger every time it was dragged across monitors.
