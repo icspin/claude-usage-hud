@@ -22,6 +22,9 @@ body {
   font-size: 12.5px;
   color: var(--fg);
   user-select: none;
+  /* Grayscale antialiasing survives fractional zoom far better than the
+     default subpixel rendering, which fringes badly once scaled. */
+  -webkit-font-smoothing: antialiased;
 }
 
 .app {
@@ -256,3 +259,26 @@ textarea.pricing {
   border-top: 1px solid var(--border);
   background: rgba(255,255,255,0.03);
 }
+
+/* ---- compact layout variants ----
+   As the window narrows the panel sheds detail rather than shrinking every
+   glyph: reset times go first, then the model legend and the secondary
+   figures under each cost cell. */
+.v-med .cbar-row .csub { display: none; }
+.v-med .cbar-row .cname { flex-basis: 88px; }
+
+.v-narrow .cbar-row .csub { display: none; }
+.v-narrow .clegend { display: none; }
+.v-narrow .csubtle { display: none; }
+.v-narrow .cnote { display: none; }
+.v-narrow .cbar-row .cname { flex-basis: 74px; font-size: 9.5px; letter-spacing: 0.2px; }
+.v-narrow .cbar-row .cval { flex-basis: 42px; }
+.v-narrow .ccell { padding: 4px 4px; }
+.v-narrow .cvalue { font-size: 14px; }
+.v-narrow .cgrid { gap: 4px; }
+
+/* Full label by default; the narrow variant swaps in the abbreviation. */
+.cname b { font-weight: inherit; }
+.lbl-short { display: none; }
+.v-narrow .lbl-full { display: none; }
+.v-narrow .lbl-short { display: inline; }

@@ -7,6 +7,17 @@ let activeTab = 'overview';
 const $ = (sel) => document.querySelector(sel);
 const content = $('#content');
 
+// A thrown error here used to leave the panel frozen on its initial markup,
+// which is indistinguishable from the app hanging. Surface it instead.
+window.addEventListener('error', (e) => {
+  const el = document.getElementById('content');
+  if (el) {
+    el.innerHTML = `<div class="cnote" style="color:#d95757">UI error: ${
+      String(e.message || e.error || 'unknown').replace(/[<>&]/g, '')
+    }</div>`;
+  }
+});
+
 // ---------- formatting ----------
 function money(v) {
   if (v == null) return '—';
@@ -281,13 +292,25 @@ function untilReset(ts) {
   return `${h}h ${m}m left`;
 }
 
+// Long labels get truncated in the narrow layout, so every row carries both a
+// full and an abbreviated name and CSS picks one.
+function shortLabel(label) {
+  const l = String(label);
+  if (/^●?\s*Session/i.test(l)) return '5h';
+  const m = l.match(/^Week \((.+)\)$/i);
+  if (m) return /all models/i.test(m[1]) ? 'Week' : m[1];
+  if (/context/i.test(l)) return l.replace(/context/i, 'Ctx');
+  if (/week by model/i.test(l)) return 'Models';
+  return l;
+}
+
 function cbar(name, pct, val, sub, cls, tip, tickPct) {
   if (cls === undefined) cls = pct >= 80 ? 'hot' : pct >= 60 ? 'warn' : '';
   const tick = Number.isFinite(tickPct)
     ? `<u class="ctick" style="left:${Math.max(0, Math.min(100, tickPct)).toFixed(1)}%"></u>`
     : '';
   return `<div class="cbar-row" title="${esc(tip || '')}">
-    <span class="cname">${esc(name)}</span>
+    <span class="cname"><b class="lbl-full">${esc(name)}</b><b class="lbl-short">${esc(shortLabel(name))}</b></span>
     <span class="cbar"><i class="${cls}" style="width:${Math.min(100, pct).toFixed(1)}%"></i>${tick}</span>
     <span class="cval ${cls}">${esc(val)}</span>
     <span class="csub">${esc(sub || '')}</span>
@@ -409,7 +432,7 @@ function renderCompact() {
     ).join('');
     rows.push('<div class="csep"></div>');
     rows.push(`<div class="cbar-row">
-      <span class="cname">Week by model</span>
+      <span class="cname"><b class="lbl-full">Week by model</b><b class="lbl-short">Models</b></span>
       <span class="cstack">${segs}</span>
       <span class="cval">${money(weekTotal)}</span>
       <span class="csub">&nbsp;</span>
@@ -442,41 +465,62 @@ function renderCompact() {
   requestAnimationFrame(() => fitCompact());
 }
 
+// The compact HUD scales with its width, so dragging the window edge zooms the
+// whole panel instead of reflowing text into an awkward layout. The width is
+// supplied by the main process rather than read back from the DOM: measuring
+// the viewport after zooming it is a feedback loop waiting to happen.
+const BASE_WIDTH = 470;
+const MIN_SCALE = 0.8;
+const MAX_SCALE = 2.5;
+let scale = 1;
+
 // Scale the panel to the window: width drives the zoom, and if the window is
 // too short for the result the zoom is reduced further so nothing is clipped.
 // That second clamp is what makes the HUD survive displays where Electron
 // cannot resize the frame correctly — the content shrinks to fit instead.
+// Layout variants, richest first. Shrinking a 9px label to 6px is unreadable,
+// so instead of scaling everything down uniformly the panel drops detail as it
+// narrows and keeps the remaining text near its natural size.
+const VARIANTS = [
+  { cls: 'v-full', width: BASE_WIDTH },
+  { cls: 'v-med', width: 392 },
+  { cls: 'v-narrow', width: 320 },
+];
+const READABLE_SCALE = 0.94;
+
 function fitCompact() {
   const wrap = $('#cwrap');
   if (!wrap) return;
   const el = document.documentElement;
+  const app = $('#app');
 
   el.style.zoom = 1; // measure at natural size; innerWidth/Height are true CSS px here
+  const availW = window.innerWidth;
+  const availH = window.innerHeight;
+
+  // Richest variant that still renders at a readable size; narrowest if none do.
+  const pick = VARIANTS.find((v) => availW / v.width >= READABLE_SCALE)
+    || VARIANTS[VARIANTS.length - 1];
+  VARIANTS.forEach((v) => app.classList.toggle(v.cls, v === pick));
+
+  // Re-measure with the variant applied — hidden columns change the height.
   const bar = document.querySelector('.titlebar').getBoundingClientRect().height;
   const natural = bar + wrap.getBoundingClientRect().height + 20;
 
-  const wScale = clamp(window.innerWidth / BASE_WIDTH, MIN_SCALE, MAX_SCALE);
-  const hScale = natural > 0 ? window.innerHeight / natural : wScale;
-  scale = clamp(Math.min(wScale, hScale), MIN_SCALE, MAX_SCALE);
+  const wScale = availW / pick.width;
+  const hScale = natural > 0 ? availH / natural : wScale;
+  // Snap to 5% steps: fractional zoom lands glyphs on sub-pixel boundaries and
+  // is what made small text look muddy.
+  scale = Math.round(clamp(Math.min(wScale, hScale), MIN_SCALE, MAX_SCALE) * 20) / 20;
   el.style.zoom = scale;
 
-  // Ask for the height this layout wants at the width-driven scale. If the
-  // window can't take it, the hScale clamp above keeps everything visible.
-  window.hud.reportHeight(Math.round(natural * wScale));
+  window.hud.reportHeight(Math.round(natural * scale));
 }
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
 }
 
-// The compact HUD scales with its width, so dragging the window edge zooms the
-// whole panel instead of reflowing text into an awkward layout. The width is
-// supplied by the main process rather than read back from the DOM: measuring
-// the viewport after zooming it is a feedback loop waiting to happen.
-const BASE_WIDTH = 470;
-const MIN_SCALE = 0.5;
-const MAX_SCALE = 2.5;
-let scale = 1;
 
 function baseModelColor(m) {
   const id = String(m).toLowerCase();

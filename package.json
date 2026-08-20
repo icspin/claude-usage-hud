@@ -1,7 +1,7 @@
 {
   "name": "claude-usage-hud",
   "productName": "Claude Usage HUD",
-  "version": "0.1.16",
+  "version": "0.1.19",
   "description": "Translucent always-on-top overlay showing live Claude Code token usage and cost per session, model, and day.",
   "main": "main.js",
   "author": "icspin",
