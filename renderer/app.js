@@ -281,20 +281,41 @@ function untilReset(ts) {
   return `${h}h ${m}m left`;
 }
 
-function cbar(name, pct, val, sub, cls, tip) {
+function cbar(name, pct, val, sub, cls, tip, tickPct) {
   if (cls === undefined) cls = pct >= 80 ? 'hot' : pct >= 60 ? 'warn' : '';
+  const tick = Number.isFinite(tickPct)
+    ? `<u class="ctick" style="left:${Math.max(0, Math.min(100, tickPct)).toFixed(1)}%"></u>`
+    : '';
   return `<div class="cbar-row" title="${esc(tip || '')}">
     <span class="cname">${esc(name)}</span>
-    <span class="cbar"><i class="${cls}" style="width:${Math.min(100, pct).toFixed(1)}%"></i></span>
+    <span class="cbar"><i class="${cls}" style="width:${Math.min(100, pct).toFixed(1)}%"></i>${tick}</span>
     <span class="cval ${cls}">${esc(val)}</span>
     <span class="csub">${esc(sub || '')}</span>
   </div>`;
 }
 
+// How long each limit window lasts, used for both pace colouring and the
+// even-pace tick mark.
+function windowMsFor(w) {
+  const k = String(w.key || '');
+  return (k.startsWith('session') || k === 'five_hour') ? 5 * 3600000 : 7 * 24 * 3600000;
+}
+
+// Where an evenly-paced user would sit right now: the fraction of the window
+// that has already elapsed. Budget spent past this mark means you are ahead of
+// pace and will run out early; behind it means you have headroom.
+function evenPacePct(w) {
+  if (!w.resetsAt) return null;
+  const windowMs = windowMsFor(w);
+  const elapsed = windowMs - (w.resetsAt - Date.now());
+  if (elapsed < 0 || elapsed > windowMs) return null;
+  return (elapsed / windowMs) * 100;
+}
+
 // Pace projection: given % used and the reset time, are you on track to hit
 // 100% before the window resets?
 function paceInfo(w) {
-  const windowMs = w.key && w.key.startsWith('session') ? 5 * 3600000 : 7 * 24 * 3600000;
+  const windowMs = windowMsFor(w);
   const now = Date.now();
   const start = w.resetsAt ? w.resetsAt - windowMs : null;
   const out = { cls: '', sub: untilReset(w.resetsAt), tip: '' };
@@ -345,7 +366,11 @@ function renderCompact() {
         continue;
       }
       const p = paceInfo(w);
-      rows.push(cbar(w.label, w.pct, w.pct.toFixed(0) + '%', p.sub, lim.stale ? 'dim' : p.cls, p.tip));
+      const tick = lim.stale ? null : evenPacePct(w);
+      const tip = Number.isFinite(tick)
+        ? `${p.tip ? p.tip + '\n' : ''}Even pace right now is ${tick.toFixed(0)}%; you are at ${w.pct.toFixed(0)}%.`
+        : p.tip;
+      rows.push(cbar(w.label, w.pct, w.pct.toFixed(0) + '%', p.sub, lim.stale ? 'dim' : p.cls, tip, tick));
     }
   } else {
     // No fresh OAuth token: approximate the 5h window from transcripts.
@@ -411,14 +436,47 @@ function renderCompact() {
 
   // Fit the compact window to its content. Measure the inner wrapper — the
   // content container flex-stretches to the window, so measuring it directly
-  // would let the window grow but never shrink.
-  requestAnimationFrame(() => {
-    const wrap = $('#cwrap');
-    if (!wrap) return;
-    const h = document.querySelector('.titlebar').offsetHeight + wrap.offsetHeight + 26;
-    window.hud.reportHeight(Math.max(120, Math.min(430, h)));
-  });
+  // would let the window grow but never shrink. getBoundingClientRect is used
+  // rather than offsetHeight because it already accounts for the zoom applied
+  // by fitCompact(), which offsetHeight reports pre-zoom.
+  requestAnimationFrame(() => fitCompact());
 }
+
+// Scale the panel to the window: width drives the zoom, and if the window is
+// too short for the result the zoom is reduced further so nothing is clipped.
+// That second clamp is what makes the HUD survive displays where Electron
+// cannot resize the frame correctly — the content shrinks to fit instead.
+function fitCompact() {
+  const wrap = $('#cwrap');
+  if (!wrap) return;
+  const el = document.documentElement;
+
+  el.style.zoom = 1; // measure at natural size; innerWidth/Height are true CSS px here
+  const bar = document.querySelector('.titlebar').getBoundingClientRect().height;
+  const natural = bar + wrap.getBoundingClientRect().height + 20;
+
+  const wScale = clamp(window.innerWidth / BASE_WIDTH, MIN_SCALE, MAX_SCALE);
+  const hScale = natural > 0 ? window.innerHeight / natural : wScale;
+  scale = clamp(Math.min(wScale, hScale), MIN_SCALE, MAX_SCALE);
+  el.style.zoom = scale;
+
+  // Ask for the height this layout wants at the width-driven scale. If the
+  // window can't take it, the hScale clamp above keeps everything visible.
+  window.hud.reportHeight(Math.round(natural * wScale));
+}
+
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+// The compact HUD scales with its width, so dragging the window edge zooms the
+// whole panel instead of reflowing text into an awkward layout. The width is
+// supplied by the main process rather than read back from the DOM: measuring
+// the viewport after zooming it is a feedback loop waiting to happen.
+const BASE_WIDTH = 470;
+const MIN_SCALE = 0.5;
+const MAX_SCALE = 2.5;
+let scale = 1;
 
 function baseModelColor(m) {
   const id = String(m).toLowerCase();
@@ -571,10 +629,16 @@ window.hud.onPinned((pinned) => {
   $('#pin-hint').classList.toggle('hidden', !pinned);
 });
 window.hud.onHover((inside) => $('#app').classList.toggle('hot', inside));
+// Resizing the window re-fits the panel. reportHeight only acts on deltas
+// greater than a few pixels, so this settles after one pass instead of looping.
+window.hud.onWinSize(() => {
+  if (settings && settings.compact) fitCompact();
+});
 window.hud.onSettings((s) => {
   settings = s;
   document.documentElement.style.setProperty('--idle-opacity', s.idleOpacity);
   $('#app').classList.toggle('compact', !!s.compact);
+  if (!s.compact) { scale = 1; document.documentElement.style.zoom = ''; }
   render();
 });
 

@@ -286,8 +286,18 @@ function startHoverPolling() {
     if (inside !== hoverState) {
       hoverState = inside;
       win.webContents.send('hud:hover', inside);
+      applyOpacity();
     }
   }, 150);
+}
+
+// Translucency lives at the window level now that the window is opaque to the
+// compositor. Pinned stays faded even under the cursor — you are meant to see
+// (and click) what is behind it.
+function applyOpacity() {
+  if (!win || win.isDestroyed()) return;
+  const idle = Math.max(0.15, Math.min(1, settings.idleOpacity ?? 0.55));
+  win.setOpacity(!settings.pinned && hoverState ? 1 : idle);
 }
 
 function startPolling() {
@@ -317,6 +327,7 @@ function setPinned(pinned) {
   // works while clicks pass through to whatever is underneath.
   win.setIgnoreMouseEvents(pinned, { forward: true });
   win.webContents.send('hud:pinned', pinned);
+  applyOpacity();
   rebuildTrayMenu();
 }
 
@@ -327,14 +338,19 @@ function createWindow() {
     height: settings.compact ? COMPACT_HEIGHT : (b.height || 520),
     x: b.x,
     y: b.y,
-    show: false, // transparent frameless windows race on creation; show explicitly below
+    show: false, // frameless windows race on creation; show explicitly below
     frame: false,
-    transparent: true,
+    // NOT transparent: Windows refuses to resize a transparent frameless
+    // window, so the frame was completely un-resizable. The see-through look
+    // comes from window-level opacity instead (see applyOpacity), which keeps
+    // the window a normal, resizable one.
+    transparent: false,
+    backgroundColor: '#0f1016',
     resizable: true,
     skipTaskbar: true,
     alwaysOnTop: settings.alwaysOnTop,
     minWidth: 280,
-    minHeight: 200,
+    minHeight: 160,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -343,6 +359,7 @@ function createWindow() {
   });
   if (settings.alwaysOnTop) win.setAlwaysOnTop(true, 'screen-saver');
   ensureOnScreen();
+  applyOpacity();
   win.once('ready-to-show', () => { if (win && !win.isDestroyed()) win.showInactive(); });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
@@ -353,10 +370,12 @@ function createWindow() {
   };
   win.on('moved', saveBounds);
   win.on('resized', saveBounds);
+  win.on('resize', sendWinSize);
   win.on('closed', () => { win = null; });
 
   win.webContents.on('did-finish-load', () => {
     if (!win.isVisible()) win.showInactive(); // belt and suspenders for the show race
+    sendWinSize();
     win.webContents.send('hud:settings', publicSettings());
     win.webContents.send('hud:pinned', settings.pinned);
     pushData();
@@ -389,6 +408,13 @@ function ensureOnScreen() {
   });
   settings.bounds = win.getBounds();
   saveSettings();
+}
+
+// The renderer scales the compact panel to the window width; it gets that
+// width from here rather than measuring a viewport it is actively zooming.
+function sendWinSize() {
+  if (!win || win.isDestroyed()) return;
+  win.webContents.send('hud:winsize', win.getContentBounds().width);
 }
 
 function publicSettings() {
@@ -559,6 +585,7 @@ ipcMain.on('hud:updateSettings', (_e, patch) => {
   const restartPoll = patch.pollIntervalMs && patch.pollIntervalMs !== settings.pollIntervalMs;
   Object.assign(settings, patch);
   saveSettings();
+  if (patch.idleOpacity !== undefined) applyOpacity();
   if (patch.alwaysOnTop !== undefined && win) win.setAlwaysOnTop(!!patch.alwaysOnTop, 'screen-saver');
   if (patch.launchAtLogin !== undefined) app.setLoginItemSettings({ openAtLogin: !!patch.launchAtLogin });
   if (restartPoll) startPolling();

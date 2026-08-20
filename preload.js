@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('hud', {
   setCompact: (compact) => ipcRenderer.send('hud:setCompact', compact),
   reportHeight: (h) => ipcRenderer.send('hud:reportHeight', h),
   onHover: (cb) => ipcRenderer.on('hud:hover', (_e, inside) => cb(inside)),
+  onWinSize: (cb) => ipcRenderer.on('hud:winsize', (_e, width) => cb(width)),
   hide: () => ipcRenderer.send('hud:hide'),
   updateSettings: (patch) => ipcRenderer.send('hud:updateSettings', patch),
   openExternal: (url) => ipcRenderer.send('hud:openExternal', url),

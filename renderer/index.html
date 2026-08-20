@@ -7,6 +7,12 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <!-- Thin no-drag strips keep the native resize borders grabbable even where
+       the panel below declares a drag region. -->
+  <div class="redge redge-t"></div>
+  <div class="redge redge-r"></div>
+  <div class="redge redge-b"></div>
+  <div class="redge redge-l"></div>
   <div id="app" class="app">
     <div class="titlebar">
       <span class="title">Claude Usage HUD</span>

@@ -1,6 +1,6 @@
 :root {
   --bg: 15, 16, 22;
-  --bg-alpha: 0.82;
+  --bg-alpha: 1;
   --idle-opacity: 0.55;
   --fg: #e8e6e1;
   --fg-dim: #9b998f;
@@ -15,7 +15,7 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-html, body { height: 100%; background: transparent; overflow: hidden; }
+html, body { height: 100%; background: rgb(var(--bg)); overflow: hidden; }
 
 body {
   font-family: "Segoe UI", system-ui, sans-serif;
@@ -27,20 +27,17 @@ body {
 .app {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
   background: rgba(var(--bg), var(--bg-alpha));
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
-  opacity: var(--idle-opacity);
-  transition: opacity 0.25s ease;
 }
-.app.hot { opacity: 1; }
-/* Pinned = click-through: stay at idle transparency even under the cursor,
-   so you can see (and click) what's behind it. Mouse-move events are still
-   forwarded (they drive nothing here now), so kill pointer-events outright —
-   otherwise buttons light up on hover while clicks pass straight through. */
-.app.pinned, .app.pinned.hot { opacity: var(--idle-opacity); }
+/* Translucency is applied to the window itself (BrowserWindow.setOpacity), not
+   here — a CSS opacity on top of it would compound and wash the panel out. */
+/* Pinned = click-through. Mouse-move events are still forwarded, so kill
+   pointer-events outright or buttons light up under a cursor whose clicks
+   pass straight through. */
 .app.pinned { pointer-events: none; }
 
 /* compact mode hides the tab chrome */
@@ -48,7 +45,20 @@ body {
 
 .cbar-row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
 .cbar-row .cname { flex: 0 0 96px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--fg-dim); white-space: nowrap; overflow: hidden; }
-.cbar { flex: 1; height: 11px; background: rgba(255,255,255,0.08); border-radius: 6px; overflow: hidden; }
+.cbar { flex: 1; position: relative; height: 11px; background: rgba(255,255,255,0.08); border-radius: 6px; overflow: hidden; }
+/* Even-pace marker: where usage would sit if spread evenly across the window. */
+.ctick {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--fg);
+  opacity: 0.75;
+  border-radius: 1px;
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.85);
+  transition: left 0.4s ease;
+}
 .cbar > i { display: block; height: 100%; border-radius: 6px; background: var(--green); transition: width 0.4s ease; }
 .cbar > i.warn { background: #d9a441; }
 .cbar > i.hot { background: #d95757; }
@@ -89,6 +99,12 @@ body {
 .titlebar-spacer { flex: 1; }
 .pin-hint { font-size: 10px; color: var(--fg-dim); }
 .hidden { display: none !important; }
+.redge { position: fixed; z-index: 50; -webkit-app-region: no-drag; }
+.redge-t { top: 0; left: 0; right: 0; height: 5px; }
+.redge-b { bottom: 0; left: 0; right: 0; height: 5px; }
+.redge-l { top: 0; bottom: 0; left: 0; width: 5px; }
+.redge-r { top: 0; bottom: 0; right: 0; width: 5px; }
+
 /* Compact view has nothing to click or scroll, so the whole surface drags. */
 .app.compact .content { -webkit-app-region: drag; }
 button, input, textarea, select, a, .tab, .cstack, table { -webkit-app-region: no-drag; }
