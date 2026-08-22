@@ -282,3 +282,7 @@ textarea.pricing {
 .lbl-short { display: none; }
 .v-narrow .lbl-full { display: none; }
 .v-narrow .lbl-short { display: inline; }
+
+/* The pace tick is clock-derived, so it stays meaningful on stale data — but
+   make it match the dimmed bar so it does not imply the fill is current. */
+.cbar > i.dim ~ .ctick { opacity: 0.4; }

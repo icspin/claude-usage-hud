@@ -389,7 +389,9 @@ function renderCompact() {
         continue;
       }
       const p = paceInfo(w);
-      const tick = lim.stale ? null : evenPacePct(w);
+      // The tick is derived purely from the clock, so it stays correct even
+      // when the percentages behind it are stale — keep showing it.
+      const tick = evenPacePct(w);
       const tip = Number.isFinite(tick)
         ? `${p.tip ? p.tip + '\n' : ''}Even pace right now is ${tick.toFixed(0)}%; you are at ${w.pct.toFixed(0)}%.`
         : p.tip;
@@ -470,7 +472,7 @@ function renderCompact() {
 // supplied by the main process rather than read back from the DOM: measuring
 // the viewport after zooming it is a feedback loop waiting to happen.
 const BASE_WIDTH = 470;
-const MIN_SCALE = 0.8;
+const MIN_SCALE = 0.6; // clipping is worse than small: let it shrink before cutting content off
 const MAX_SCALE = 2.5;
 let scale = 1;
 
@@ -591,6 +593,7 @@ function dayKeyLocal(d) {
 
 function friendlyLimitError(err) {
   const e = String(err || '');
+  if (e.includes('signed out')) return 'Claude CLI is signed out — run: claude login';
   if (e.includes('refreshing')) return 'renewing login token…';
   if (e.includes('expired') || e.includes('401')) {
     return settings && settings.autoRefreshToken

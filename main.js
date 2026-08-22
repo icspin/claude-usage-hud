@@ -164,8 +164,13 @@ async function fetchLimits() {
   try {
     const credPath = path.join(CLAUDE_DIR, '.credentials.json');
     const raw = fs.readFileSync(credPath, 'utf8');
-    const cred = JSON.parse(raw).claudeAiOauth;
-    if (!cred || !cred.accessToken) throw new Error('no OAuth credentials');
+    const cred = JSON.parse(raw).claudeAiOauth || {};
+
+    // Claude Code blanks these fields when its own OAuth session ends. That is
+    // a full sign-out, not an expiry a refresh can fix, so say so instead of
+    // reporting a vague missing-login and quietly retrying forever.
+    if (!cred.accessToken) throw new Error('signed out');
+
     // Renew a little before expiry so the bars never actually go stale.
     if (cred.expiresAt && Date.now() >= cred.expiresAt - 10 * 60 * 1000) {
       const refreshing = refreshTokenViaCli();
@@ -398,13 +403,19 @@ function ensureOnScreen() {
       b.y < a.y + a.height && b.y + b.height > a.y
     );
   });
-  if (visible) return;
+  // Also rescue a window that is technically on-screen but too small to read.
+  // Mixed-DPI displays can leave it a fraction of its intended size.
+  const tooSmall = b.width < 300 || b.height < 190;
+  if (visible && !tooSmall) return;
+
   const wa = screen.getPrimaryDisplay().workArea;
+  const width = Math.max(300, Math.min(MAX_W, b.width));
+  const height = Math.max(190, Math.min(MAX_H, b.height));
   win.setBounds({
-    x: wa.x + wa.width - b.width - 40,
-    y: wa.y + 40,
-    width: b.width,
-    height: b.height,
+    x: visible ? b.x : wa.x + wa.width - width - 40,
+    y: visible ? b.y : wa.y + 40,
+    width,
+    height,
   });
   settings.bounds = win.getBounds();
   saveSettings();
