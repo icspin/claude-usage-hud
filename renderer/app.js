@@ -48,6 +48,17 @@ function hm(ts) {
   const d = new Date(ts);
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
+// A bare clock time reads as "today", so name the day whenever it isn't.
+// A projection five days out looked like it was hours away.
+function whenLabel(ts) {
+  const d = new Date(ts);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) return hm(ts);
+  const days = (d - now) / 86400000;
+  if (days < 7) return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + hm(ts);
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
 function dur(ms) {
   const m = Math.floor(ms / 60000);
   if (m < 60) return m + 'm';
@@ -356,8 +367,9 @@ function paceInfo(w) {
       const projectedEnd = w.pct + rate * (w.resetsAt - now);
       if (exhaustAt < w.resetsAt) {
         out.cls = 'hot';
-        out.sub = '⚠ out ' + hm(exhaustAt);
-        out.tip = `At the current pace you hit 100% around ${new Date(exhaustAt).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}, before the ${untilReset(w.resetsAt)} reset.`;
+        out.sub = '⚠ out ' + whenLabel(exhaustAt);
+        out.tip = `"Out" is when this limit is projected to reach 100% at your current rate — ${
+          whenLabel(exhaustAt)}, which is before it resets (${untilReset(w.resetsAt)}). Ease off or switch models to stretch it.`;
         return out;
       }
       if (projectedEnd >= 80) {
