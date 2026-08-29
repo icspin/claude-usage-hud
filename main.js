@@ -38,6 +38,7 @@ let lastLimits = null;
 let limitsTimer = null;
 let hoverTimer = null;
 let hoverState = false;
+let topmostTimer = null;
 
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 
@@ -277,6 +278,28 @@ function watchCredentials() {
   }, 15 * 1000);
 }
 
+// Windows quietly drops a window's topmost style in several situations — an
+// app going fullscreen, another process forcing itself foreground, a display
+// change. Electron still reports alwaysOnTop as true, so the flag can't be
+// trusted; re-assert it instead. `force` toggles it off and back on, which
+// makes Windows re-apply the style rather than treating it as a no-op.
+function reassertTopmost(force = false) {
+  if (!win || win.isDestroyed() || !settings.alwaysOnTop) return;
+  if (!win.isVisible() || win.isMinimized()) return;
+  if (force) win.setAlwaysOnTop(false);
+  win.setAlwaysOnTop(true, 'screen-saver');
+}
+
+function startTopmostKeeper() {
+  clearInterval(topmostTimer);
+  topmostTimer = setInterval(() => reassertTopmost(false), 2000);
+
+  const { screen } = require('electron');
+  screen.on('display-metrics-changed', () => reassertTopmost(true));
+  screen.on('display-added', () => reassertTopmost(true));
+  screen.on('display-removed', () => reassertTopmost(true));
+}
+
 // ---- hover detection via cursor polling ----
 // CSS :hover is unreliable in click-through (pinned) mode, so the main process
 // tracks whether the cursor is inside the window and tells the renderer.
@@ -376,6 +399,10 @@ function createWindow() {
   win.on('moved', saveBounds);
   win.on('resized', saveBounds);
   win.on('resize', sendWinSize);
+  // Moments Windows is most likely to have demoted the window.
+  win.on('show', () => reassertTopmost(true));
+  win.on('restore', () => reassertTopmost(true));
+  win.on('blur', () => reassertTopmost(false));
   win.on('closed', () => { win = null; });
 
   win.webContents.on('did-finish-load', () => {
@@ -529,6 +556,7 @@ if (!gotLock) {
 
     startPolling();
     startHoverPolling();
+    startTopmostKeeper();
     // Seed with the last successful limits fetch so a restart during an API
     // backoff still shows bars (marked stale until refreshed).
     try {
