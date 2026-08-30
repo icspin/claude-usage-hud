@@ -712,8 +712,13 @@ document.addEventListener('contextmenu', (e) => e.preventDefault());
 document.addEventListener('pointerdown', (e) => {
   if (e.button !== 2 || !settings || settings.pinned) return;
   if (e.target.closest('input, textarea, select')) return;
-  opacityDrag = { x: e.screenX, start: settings.idleOpacity ?? 0.55 };
-  try { e.target.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
+  opacityDrag = { x: e.screenX, start: settings.idleOpacity ?? 0.55, id: e.pointerId };
+  // Capture on the root element, not e.target: the panel re-renders every few
+  // seconds, and capturing a node that then gets replaced silently ends the drag.
+  try { document.documentElement.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  // Show the readout on press, before any movement, so it is obvious the
+  // gesture registered even if you only nudge the mouse.
+  window.hud.setOpacityLive(opacityDrag.start);
   e.preventDefault();
 });
 
@@ -725,6 +730,7 @@ document.addEventListener('pointermove', (e) => {
 
 function finishOpacityDrag() {
   if (!opacityDrag) return;
+  try { document.documentElement.releasePointerCapture(opacityDrag.id); } catch { /* ignore */ }
   opacityDrag = null;
   window.hud.endOpacityDrag();
 }
