@@ -728,7 +728,14 @@ function hideOpacityHud() {
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 
 document.addEventListener('pointerdown', (e) => {
-  if (e.button !== 2 || !settings || settings.pinned) return;
+  // Left-drag the title-bar handle, or right-drag any non-drag area. The panel
+  // body is a native drag region (so the window can be moved from anywhere),
+  // and Windows delivers no mouse events at all over a drag region — the
+  // handle is what makes this reachable.
+  const onHandle = !!e.target.closest('#btn-opacity');
+  if (!settings || settings.pinned) return;
+  if (!onHandle && e.button !== 2) return;
+  if (onHandle && e.button !== 0) return;
   if (e.target.closest('input, textarea, select')) return;
   const start = settings.idleOpacity ?? 0.55;
   opacityDrag = { x: e.screenX, start, value: start, sentAt: 0, id: e.pointerId };
@@ -760,7 +767,7 @@ function finishOpacityDrag() {
   window.hud.endOpacityDrag();
   setTimeout(hideOpacityHud, 700); // let the final value be readable
 }
-document.addEventListener('pointerup', (e) => { if (e.button === 2) finishOpacityDrag(); });
+document.addEventListener('pointerup', () => finishOpacityDrag());
 document.addEventListener('pointercancel', finishOpacityDrag);
 window.addEventListener('blur', finishOpacityDrag);
 
