@@ -702,6 +702,17 @@ function reportPinRect() {
   window.hud.reportPinRect({ x: r.left, y: r.top, w: r.width, h: r.height });
 }
 
+// Live readout while right-dragging to set the resting opacity.
+window.hud.onOpacityPreview((v) => {
+  const hud = $('#op-hud');
+  if (!hud) return;
+  if (v == null) { hud.classList.add('hidden'); return; }
+  const pct = Math.round(v * 100);
+  hud.querySelector('.op-val').textContent = pct + '%';
+  hud.querySelector('.op-track > i').style.width = pct + '%';
+  hud.classList.remove('hidden');
+});
+
 window.hud.onUnpinProgress((p) => {
   const ring = $('#unpin-ring');
   if (!ring) return;

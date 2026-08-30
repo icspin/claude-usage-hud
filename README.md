@@ -25,8 +25,11 @@ On a Pro/Max subscription the numbers are **API-equivalent value**, not a bill �
 - Translucent when idle, fades to full opacity on hover (works in pinned mode too — hover is detected by cursor position, not CSS)
 - Left-click and drag anywhere in the window to move it
 - Drag anywhere on the title bar; resize from any edge
-- **Pin** (📌 button, tray menu, or `Ctrl+Alt+U`): the window becomes click-through — you can click straight through it while it stays visible. To unpin: **middle-click anywhere over the panel**, press `Ctrl+Alt+U`, or use the tray icon. Because a pinned window is click-through, that middle click also reaches whatever sits beneath it.
+- **Pin** (📌 button, tray menu, or `Ctrl+Alt+U`): the window becomes click-through — you can click straight through it while it stays visible. To unpin: **rest the cursor on the pin button for about a second** — a ring fills as you dwell, then it releases — or press `Ctrl+Alt+U`, or use the tray icon. Hovering reaches nothing underneath, so unpinning never disturbs the app below.
+- **Right-click and drag** across the panel to set its resting opacity (the level it sits at when you are not hovering, and while pinned). A readout follows the drag.
 - Lives in the system tray; closing just hides it
+
+> **PowerToys FancyZones users:** FancyZones moves and resizes newly created windows by default (*Move newly created windows to their last known zone* / *to the current active monitor*, with *Restore original size* off). That will relocate this window to another monitor and stretch it to a zone on every launch. Add `Claude Usage HUD.exe` under **FancyZones → Excluded apps** and it will stay exactly where you left it.
 
 ## Install
 

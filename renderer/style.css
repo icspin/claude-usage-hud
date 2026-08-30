@@ -299,3 +299,24 @@ textarea.pricing {
   transition: opacity 0.15s ease;
 }
 #unpin-ring.hidden { display: none !important; }
+
+/* Right-drag opacity indicator */
+#op-hud {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 80;
+  pointer-events: none;
+  padding: 12px 18px;
+  border-radius: 12px;
+  background: rgba(10, 11, 16, 0.92);
+  border: 1px solid var(--border);
+  text-align: center;
+  min-width: 130px;
+}
+#op-hud.hidden { display: none !important; }
+#op-hud .op-val { font-family: var(--mono); font-size: 22px; font-weight: 600; color: var(--accent); }
+#op-hud .op-track { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.14); overflow: hidden; margin: 7px 0 5px; }
+#op-hud .op-track > i { display: block; height: 100%; background: var(--accent); }
+#op-hud .op-cap { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--fg-dim); }

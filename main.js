@@ -11,7 +11,8 @@ const { DEFAULT_PRICING } = require('./src/pricing');
 const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 
 const DEFAULT_SETTINGS = {
-  bounds: { width: 420, height: 520 },
+  bounds: { width: 470, height: 260 },
+  placement: null, // {displayId, dx, dy, width, height} - anchored to one monitor
   fullBounds: null,
   compact: true,
   idleOpacity: 0.55,
@@ -278,89 +279,6 @@ function watchCredentials() {
   }, 15 * 1000);
 }
 
-// ---- global middle-click to unpin ----
-// A pinned window is click-through, so it never sees the click itself. Rather
-// than pull in a native global-hook module, a tiny PowerShell helper polls the
-// middle button and reports click coordinates on stdout. It only runs while
-// pinned, and is killed the moment the window becomes interactive again.
-const MIDDLE_CLICK_WATCHER = `
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-public class MK {
-  [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int k);
-  [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
-  public struct POINT { public int X; public int Y; }
-}
-"@
-$was = $false
-while ($true) {
-  $down = ([MK]::GetAsyncKeyState(4) -band 0x8000) -ne 0
-  if ($down -and -not $was) {
-    $p = New-Object MK+POINT
-    [MK]::GetCursorPos([ref]$p) | Out-Null
-    Write-Output "$($p.X) $($p.Y)"
-    [Console]::Out.Flush()
-  }
-  $was = $down
-  Start-Sleep -Milliseconds 40
-}
-`;
-
-let mouseWatcher = null;
-
-function startMiddleClickWatch() {
-  if (mouseWatcher || process.platform !== 'win32') return;
-  let scriptPath;
-  try {
-    scriptPath = path.join(app.getPath('userData'), 'middle-click-watch.ps1');
-    fs.writeFileSync(scriptPath, MIDDLE_CLICK_WATCHER);
-  } catch {
-    return; // no watcher; Ctrl+Alt+U and the tray still unpin
-  }
-
-  const { spawn } = require('child_process');
-  mouseWatcher = spawn(
-    'powershell.exe',
-    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
-    { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }
-  );
-
-  let buf = '';
-  mouseWatcher.stdout.on('data', (chunk) => {
-    buf += chunk.toString();
-    const lines = buf.split('\n');
-    buf = lines.pop();
-    for (const line of lines) {
-      const m = line.trim().match(/^(-?\d+)\s+(-?\d+)$/);
-      if (m) onGlobalMiddleClick(Number(m[1]), Number(m[2]));
-    }
-  });
-  mouseWatcher.on('exit', () => { mouseWatcher = null; });
-  mouseWatcher.on('error', () => { mouseWatcher = null; });
-}
-
-function stopMiddleClickWatch() {
-  if (!mouseWatcher) return;
-  try { mouseWatcher.kill(); } catch { /* already gone */ }
-  mouseWatcher = null;
-}
-
-function onGlobalMiddleClick(physX, physY) {
-  if (!settings.pinned || !win || win.isDestroyed() || !win.isVisible()) return;
-  const { screen } = require('electron');
-  // The helper reports physical pixels; window bounds are in DIP. Converting
-  // matters on mixed-DPI setups, where the two spaces disagree.
-  let pt = { x: physX, y: physY };
-  try {
-    pt = screen.screenToDipPoint(pt);
-  } catch { /* fall back to raw coordinates */ }
-  const b = win.getBounds();
-  if (pt.x >= b.x && pt.x < b.x + b.width && pt.y >= b.y && pt.y < b.y + b.height) {
-    setPinned(false);
-  }
-}
-
 // Windows quietly drops a window's topmost style in several situations — an
 // app going fullscreen, another process forcing itself foreground, a display
 // change. Electron still reports alwaysOnTop as true, so the flag can't be
@@ -381,6 +299,63 @@ function startTopmostKeeper() {
   screen.on('display-metrics-changed', () => reassertTopmost(true));
   screen.on('display-added', () => reassertTopmost(true));
   screen.on('display-removed', () => reassertTopmost(true));
+}
+
+// ---- right-drag to set idle opacity ----
+// Most of the panel is a native drag region, so right-clicks there arrive as
+// non-client messages the page never sees. Hooking the window messages catches
+// both cases without another process. Dragging right brightens the resting
+// opacity, left fades it; that resting value is what you see when the cursor
+// is away and whenever the window is pinned.
+const WM_RBUTTONDOWN = 0x0204;
+const WM_RBUTTONUP = 0x0205;
+const WM_NCRBUTTONDOWN = 0x00A4;
+const WM_NCRBUTTONUP = 0x00A5;
+const OPACITY_DRAG_PX = 320; // full 0..1 sweep over this many pixels
+
+let opacityDrag = null;
+
+function startOpacityDrag() {
+  if (opacityDrag || !win || win.isDestroyed() || settings.pinned) return;
+  const { screen } = require('electron');
+  opacityDrag = {
+    startX: screen.getCursorScreenPoint().x,
+    startOpacity: settings.idleOpacity ?? 0.55,
+    timer: setInterval(() => {
+      if (!opacityDrag || !win || win.isDestroyed()) return;
+      const dx = screen.getCursorScreenPoint().x - opacityDrag.startX;
+      const next = Math.max(0.15, Math.min(1, opacityDrag.startOpacity + dx / OPACITY_DRAG_PX));
+      settings.idleOpacity = Math.round(next * 100) / 100;
+      win.setOpacity(settings.idleOpacity); // preview it directly, hover or not
+      win.webContents.send('hud:opacityPreview', settings.idleOpacity);
+    }, 25),
+    // Safety net: if the button-up message is missed (the cursor can leave the
+    // window mid-drag), don't get stuck adjusting forever.
+    guard: setTimeout(() => endOpacityDrag(), 15000),
+  };
+}
+
+function endOpacityDrag() {
+  if (!opacityDrag) return;
+  clearInterval(opacityDrag.timer);
+  clearTimeout(opacityDrag.guard);
+  opacityDrag = null;
+  saveSettings();
+  applyOpacity();
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('hud:opacityPreview', null);
+    win.webContents.send('hud:settings', publicSettings());
+  }
+}
+
+function hookOpacityDrag() {
+  if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
+  try {
+    win.hookWindowMessage(WM_RBUTTONDOWN, startOpacityDrag);
+    win.hookWindowMessage(WM_NCRBUTTONDOWN, startOpacityDrag);
+    win.hookWindowMessage(WM_RBUTTONUP, endOpacityDrag);
+    win.hookWindowMessage(WM_NCRBUTTONUP, endOpacityDrag);
+  } catch { /* not available; the Settings slider still works */ }
 }
 
 // ---- dwell on the pin button to unpin ----
@@ -481,15 +456,16 @@ function setPinned(pinned) {
   win.setIgnoreMouseEvents(pinned, { forward: true });
   win.webContents.send('hud:pinned', pinned);
   applyOpacity();
-  if (pinned) startMiddleClickWatch(); else stopMiddleClickWatch();
   rebuildTrayMenu();
 }
 
 function createWindow() {
   const b = settings.bounds || {};
   win = new BrowserWindow({
-    width: b.width || 420,
-    height: settings.compact ? COMPACT_HEIGHT : (b.height || 520),
+    width: b.width || 470,
+    // Restore the saved height rather than forcing a default: the whole point
+    // is to reopen exactly where and how it was left.
+    height: b.height || (settings.compact ? COMPACT_HEIGHT : 520),
     x: b.x,
     y: b.y,
     show: false, // frameless windows race on creation; show explicitly below
@@ -514,22 +490,52 @@ function createWindow() {
   if (settings.alwaysOnTop) win.setAlwaysOnTop(true, 'screen-saver');
   ensureOnScreen();
   applyOpacity();
-  win.once('ready-to-show', () => { if (win && !win.isDestroyed()) win.showInactive(); });
+  win.once('ready-to-show', () => {
+    if (!win || win.isDestroyed()) return;
+    win.showInactive();
+    restoreSavedBounds();
+    ensureOnScreen();
+  });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
   const saveBounds = () => {
     if (!win || win.isDestroyed()) return;
-    settings.bounds = win.getBounds();
+    const b = win.getBounds();
+
+    // Refuse to persist a geometry that is already corrupt. Saving it is what
+    // turned a one-off mis-sizing into a window that grew on every restart.
+    const { screen } = require('electron');
+    const area = screen.getDisplayMatching(b).workArea;
+    if (b.width > area.width * 0.7 || b.height > area.height * 0.8) return;
+    if (b.width < MIN_W || b.height < MIN_H) return;
+
+    settings.bounds = b;
+    // Anchor the position to a specific display rather than to global
+    // coordinates. Global coordinates get re-interpreted when the window
+    // reopens next to a differently-scaled monitor, which is what moved it to
+    // the wrong screen and inflated it a little more on every restart.
+    const disp = screen.getDisplayMatching(b);
+    settings.placement = {
+      displayId: disp.id,
+      dx: Math.round(b.x - disp.workArea.x),
+      dy: Math.round(b.y - disp.workArea.y),
+      width: b.width,
+      height: b.height,
+    };
     saveSettings();
   };
   win.on('moved', saveBounds);
   win.on('resized', saveBounds);
-  win.on('resize', sendWinSize);
+  // Also persist programmatic size changes (the auto-fit), so the window
+  // genuinely reopens at the size it was last showing. saveSettings debounces.
+  win.on('resize', () => { sendWinSize(); saveBounds(); });
   // Moments Windows is most likely to have demoted the window.
   win.on('show', () => reassertTopmost(true));
   win.on('restore', () => reassertTopmost(true));
   win.on('blur', () => reassertTopmost(false));
   win.on('closed', () => { win = null; });
+  win.on('blur', () => endOpacityDrag()); // release if focus is lost mid-drag
+  hookOpacityDrag();
 
   win.webContents.on('did-finish-load', () => {
     if (!win.isVisible()) win.showInactive(); // belt and suspenders for the show race
@@ -545,6 +551,31 @@ function createWindow() {
 // A monitor can be unplugged, or saved coordinates can land in a gap between
 // displays. Either way the window would be invisible with no way to reach it,
 // so drop it back onto the primary display.
+// Reopen exactly where it was left. The position is stored relative to a
+// specific display's work area, so it lands on the same monitor even when the
+// desktop spans screens with different scale factors.
+function restoreSavedBounds() {
+  if (!win || win.isDestroyed()) return;
+  const p = settings.placement;
+  if (!p || !Number.isFinite(p.dx) || !Number.isFinite(p.width)) return;
+
+  const { screen } = require('electron');
+  const disp =
+    screen.getAllDisplays().find((d) => d.id === p.displayId) || screen.getPrimaryDisplay();
+  const wa = disp.workArea;
+
+  const width = Math.max(MIN_W, Math.min(MAX_W, p.width));
+  const height = Math.max(MIN_H, Math.min(MAX_H, p.height));
+  // Keep it inside the display it belongs to, in case the resolution changed.
+  const x = Math.round(Math.max(wa.x, Math.min(wa.x + wa.width - width, wa.x + p.dx)));
+  const y = Math.round(Math.max(wa.y, Math.min(wa.y + wa.height - height, wa.y + p.dy)));
+
+  const got = win.getBounds();
+  if (got.x !== x || got.y !== y || got.width !== width || got.height !== height) {
+    win.setBounds({ x, y, width, height });
+  }
+}
+
 function ensureOnScreen() {
   if (!win || win.isDestroyed()) return;
   const { screen } = require('electron');
@@ -556,14 +587,17 @@ function ensureOnScreen() {
       b.y < a.y + a.height && b.y + b.height > a.y
     );
   });
-  // Also rescue a window that is technically on-screen but too small to read.
-  // Mixed-DPI displays can leave it a fraction of its intended size.
+  // Rescue a window that is on-screen but unusable: mixed-DPI displays can
+  // leave it a fraction of its intended size, or blow it up to fill the screen.
+  const area = screen.getDisplayMatching(b).workArea;
   const tooSmall = b.width < 300 || b.height < 190;
-  if (visible && !tooSmall) return;
+  const tooBig = b.width > area.width * 0.7 || b.height > area.height * 0.8;
+  if (visible && !tooSmall && !tooBig) return;
 
   const wa = screen.getPrimaryDisplay().workArea;
-  const width = Math.max(300, Math.min(MAX_W, b.width));
-  const height = Math.max(190, Math.min(MAX_H, b.height));
+  const cap = visible ? area : wa;
+  const width = Math.max(300, Math.min(MAX_W, Math.round(cap.width * 0.6), b.width || 470));
+  const height = Math.max(190, Math.min(MAX_H, Math.round(cap.height * 0.7), b.height || 260));
   win.setBounds({
     x: visible ? b.x : wa.x + wa.width - width - 40,
     y: visible ? b.y : wa.y + 40,
@@ -698,7 +732,6 @@ if (!gotLock) {
 app.on('window-all-closed', () => { /* keep running in tray */ });
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
-  stopMiddleClickWatch();
 });
 
 // ---- IPC ----
@@ -708,30 +741,12 @@ ipcMain.handle('hud:getSettings', () => publicSettings());
 ipcMain.on('hud:setPinned', (_e, pinned) => setPinned(!!pinned));
 ipcMain.on('hud:hide', () => { if (win) win.hide(); rebuildTrayMenu(); });
 
-ipcMain.on('hud:reportHeight', (_e, h) => {
-  if (!settings.compact || !win || win.isDestroyed() || win.isMinimized()) return;
-  const height = Math.round(h);
-  if (!Number.isFinite(height) || height < MIN_H || height > MAX_H) return;
-
-  const b = win.getBounds();
-  if (Math.abs(b.height - height) <= 4) return;
-
-  const { screen } = require('electron');
-  const dispId = screen.getDisplayMatching(b).id;
-  // Height-only resizes are normally safe. On some mixed-DPI setups Chromium
-  // applies the new bounds in the wrong coordinate space and the width shifts
-  // as a side effect — which is how the frame used to creep. Detect that once
-  // per display, undo it, and stop auto-fitting there rather than compounding.
-  if (unsafeDisplays.has(dispId)) return;
-
-  win.setBounds({ x: b.x, y: b.y, width: b.width, height });
-
-  const after = win.getBounds();
-  if (after.width !== b.width) {
-    unsafeDisplays.add(dispId);
-    win.setBounds({ x: b.x, y: b.y, width: b.width, height: after.height });
-  }
-});
+// The window no longer resizes itself. Every programmatic setBounds was a
+// chance for Chromium to re-apply the size in the wrong coordinate space on a
+// mixed-DPI desktop, and each mis-application was saved and compounded on the
+// next launch. The size is now yours alone; the renderer scales its content to
+// fit whatever you choose (see fitCompact), so nothing is ever clipped.
+ipcMain.on('hud:reportHeight', () => {});
 
 ipcMain.on('hud:pinRect', (_e, r) => {
   if (r && Number.isFinite(r.x) && Number.isFinite(r.y) && r.w > 0 && r.h > 0) pinRect = r;

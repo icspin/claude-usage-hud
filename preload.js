@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('hud', {
   onHover: (cb) => ipcRenderer.on('hud:hover', (_e, inside) => cb(inside)),
   onWinSize: (cb) => ipcRenderer.on('hud:winsize', (_e, width) => cb(width)),
   onUnpinProgress: (cb) => ipcRenderer.on('hud:unpinProgress', (_e, p) => cb(p)),
+  onOpacityPreview: (cb) => ipcRenderer.on('hud:opacityPreview', (_e, v) => cb(v)),
   reportPinRect: (r) => ipcRenderer.send('hud:pinRect', r),
   hide: () => ipcRenderer.send('hud:hide'),
   updateSettings: (patch) => ipcRenderer.send('hud:updateSettings', patch),
