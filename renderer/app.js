@@ -702,52 +702,67 @@ function reportPinRect() {
   window.hud.reportPinRect({ x: r.left, y: r.top, w: r.width, h: r.height });
 }
 
-// Right-drag anywhere on the panel body sets the resting opacity. Pointer
-// capture keeps it tracking even when the cursor leaves the window mid-drag.
+// Right-drag anywhere on the panel body sets the resting opacity.
+// The readout is drawn here, locally, on every single move — going through the
+// main process for it made the number lag the mouse. The window opacity itself
+// is throttled: calling setOpacity on every mouse move thrashes the layered
+// window and Windows stops repainting until the drag ends.
 const OPACITY_SWEEP_PX = 320; // pixels for a full 0..1 sweep
+const OPACITY_IPC_MS = 70;
 let opacityDrag = null;
+
+function showOpacityHud(v) {
+  const hud = $('#op-hud');
+  if (!hud) return;
+  const pct = Math.round(v * 100);
+  hud.querySelector('.op-val').textContent = pct + '%';
+  hud.querySelector('.op-track > i').style.width = pct + '%';
+  hud.classList.remove('hidden');
+}
+
+function hideOpacityHud() {
+  const hud = $('#op-hud');
+  if (hud) hud.classList.add('hidden');
+}
 
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 
 document.addEventListener('pointerdown', (e) => {
   if (e.button !== 2 || !settings || settings.pinned) return;
   if (e.target.closest('input, textarea, select')) return;
-  opacityDrag = { x: e.screenX, start: settings.idleOpacity ?? 0.55, id: e.pointerId };
-  // Capture on the root element, not e.target: the panel re-renders every few
-  // seconds, and capturing a node that then gets replaced silently ends the drag.
+  const start = settings.idleOpacity ?? 0.55;
+  opacityDrag = { x: e.screenX, start, value: start, sentAt: 0, id: e.pointerId };
+  // Capture on the root element: the panel re-renders every few seconds, and
+  // capturing a node that then gets replaced silently ends the drag.
   try { document.documentElement.setPointerCapture(e.pointerId); } catch { /* ignore */ }
-  // Show the readout on press, before any movement, so it is obvious the
-  // gesture registered even if you only nudge the mouse.
-  window.hud.setOpacityLive(opacityDrag.start);
+  showOpacityHud(start);
   e.preventDefault();
 });
 
 document.addEventListener('pointermove', (e) => {
   if (!opacityDrag) return;
   const v = clamp(opacityDrag.start + (e.screenX - opacityDrag.x) / OPACITY_SWEEP_PX, 0.15, 1);
-  window.hud.setOpacityLive(Math.round(v * 100) / 100);
+  opacityDrag.value = v;
+  showOpacityHud(v); // every move, so the number tracks the mouse exactly
+  const now = performance.now();
+  if (now - opacityDrag.sentAt >= OPACITY_IPC_MS) {
+    opacityDrag.sentAt = now;
+    window.hud.setOpacityLive(Math.round(v * 100) / 100);
+  }
 });
 
 function finishOpacityDrag() {
   if (!opacityDrag) return;
+  const final = Math.round(opacityDrag.value * 100) / 100;
   try { document.documentElement.releasePointerCapture(opacityDrag.id); } catch { /* ignore */ }
   opacityDrag = null;
+  window.hud.setOpacityLive(final); // land on the exact value the readout showed
   window.hud.endOpacityDrag();
+  setTimeout(hideOpacityHud, 700); // let the final value be readable
 }
 document.addEventListener('pointerup', (e) => { if (e.button === 2) finishOpacityDrag(); });
 document.addEventListener('pointercancel', finishOpacityDrag);
 window.addEventListener('blur', finishOpacityDrag);
-
-// Live readout while right-dragging to set the resting opacity.
-window.hud.onOpacityPreview((v) => {
-  const hud = $('#op-hud');
-  if (!hud) return;
-  if (v == null) { hud.classList.add('hidden'); return; }
-  const pct = Math.round(v * 100);
-  hud.querySelector('.op-val').textContent = pct + '%';
-  hud.querySelector('.op-track > i').style.width = pct + '%';
-  hud.classList.remove('hidden');
-});
 
 window.hud.onUnpinProgress((p) => {
   const ring = $('#unpin-ring');

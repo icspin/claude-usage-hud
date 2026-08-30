@@ -312,21 +312,13 @@ function setIdleOpacityLive(v) {
   if (!Number.isFinite(next)) return;
   settings.idleOpacity = Math.round(next * 100) / 100;
   win.setOpacity(settings.idleOpacity); // preview it directly, hovered or not
-  win.webContents.send('hud:opacityPreview', settings.idleOpacity);
 }
 
-let opacityHideTimer = null;
 function endIdleOpacityDrag() {
   if (!win || win.isDestroyed()) return;
   saveSettings();
   applyOpacity();
   win.webContents.send('hud:settings', publicSettings());
-  // Leave the readout up briefly so the final value is readable rather than
-  // vanishing the instant the button comes up.
-  clearTimeout(opacityHideTimer);
-  opacityHideTimer = setTimeout(() => {
-    if (win && !win.isDestroyed()) win.webContents.send('hud:opacityPreview', null);
-  }, 600);
 }
 
 // ---- dwell on the pin button to unpin ----
