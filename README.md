@@ -25,7 +25,7 @@ On a Pro/Max subscription the numbers are **API-equivalent value**, not a bill �
 - Translucent when idle, fades to full opacity on hover (works in pinned mode too — hover is detected by cursor position, not CSS)
 - Left-click and drag anywhere in the window to move it
 - Drag anywhere on the title bar; resize from any edge
-- **Pin** (📌 button, tray menu, or `Ctrl+Alt+U`): the window becomes click-through — you can click straight through it while it stays visible. Unpin from the tray icon or `Ctrl+Alt+U`
+- **Pin** (📌 button, tray menu, or `Ctrl+Alt+U`): the window becomes click-through — you can click straight through it while it stays visible. To unpin: **middle-click anywhere over the panel**, press `Ctrl+Alt+U`, or use the tray icon. Because a pinned window is click-through, that middle click also reaches whatever sits beneath it.
 - Lives in the system tray; closing just hides it
 
 ## Install

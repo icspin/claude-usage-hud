@@ -278,6 +278,89 @@ function watchCredentials() {
   }, 15 * 1000);
 }
 
+// ---- global middle-click to unpin ----
+// A pinned window is click-through, so it never sees the click itself. Rather
+// than pull in a native global-hook module, a tiny PowerShell helper polls the
+// middle button and reports click coordinates on stdout. It only runs while
+// pinned, and is killed the moment the window becomes interactive again.
+const MIDDLE_CLICK_WATCHER = `
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class MK {
+  [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int k);
+  [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
+  public struct POINT { public int X; public int Y; }
+}
+"@
+$was = $false
+while ($true) {
+  $down = ([MK]::GetAsyncKeyState(4) -band 0x8000) -ne 0
+  if ($down -and -not $was) {
+    $p = New-Object MK+POINT
+    [MK]::GetCursorPos([ref]$p) | Out-Null
+    Write-Output "$($p.X) $($p.Y)"
+    [Console]::Out.Flush()
+  }
+  $was = $down
+  Start-Sleep -Milliseconds 40
+}
+`;
+
+let mouseWatcher = null;
+
+function startMiddleClickWatch() {
+  if (mouseWatcher || process.platform !== 'win32') return;
+  let scriptPath;
+  try {
+    scriptPath = path.join(app.getPath('userData'), 'middle-click-watch.ps1');
+    fs.writeFileSync(scriptPath, MIDDLE_CLICK_WATCHER);
+  } catch {
+    return; // no watcher; Ctrl+Alt+U and the tray still unpin
+  }
+
+  const { spawn } = require('child_process');
+  mouseWatcher = spawn(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
+    { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }
+  );
+
+  let buf = '';
+  mouseWatcher.stdout.on('data', (chunk) => {
+    buf += chunk.toString();
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      const m = line.trim().match(/^(-?\d+)\s+(-?\d+)$/);
+      if (m) onGlobalMiddleClick(Number(m[1]), Number(m[2]));
+    }
+  });
+  mouseWatcher.on('exit', () => { mouseWatcher = null; });
+  mouseWatcher.on('error', () => { mouseWatcher = null; });
+}
+
+function stopMiddleClickWatch() {
+  if (!mouseWatcher) return;
+  try { mouseWatcher.kill(); } catch { /* already gone */ }
+  mouseWatcher = null;
+}
+
+function onGlobalMiddleClick(physX, physY) {
+  if (!settings.pinned || !win || win.isDestroyed() || !win.isVisible()) return;
+  const { screen } = require('electron');
+  // The helper reports physical pixels; window bounds are in DIP. Converting
+  // matters on mixed-DPI setups, where the two spaces disagree.
+  let pt = { x: physX, y: physY };
+  try {
+    pt = screen.screenToDipPoint(pt);
+  } catch { /* fall back to raw coordinates */ }
+  const b = win.getBounds();
+  if (pt.x >= b.x && pt.x < b.x + b.width && pt.y >= b.y && pt.y < b.y + b.height) {
+    setPinned(false);
+  }
+}
+
 // Windows quietly drops a window's topmost style in several situations — an
 // app going fullscreen, another process forcing itself foreground, a display
 // change. Electron still reports alwaysOnTop as true, so the flag can't be
@@ -356,6 +439,7 @@ function setPinned(pinned) {
   win.setIgnoreMouseEvents(pinned, { forward: true });
   win.webContents.send('hud:pinned', pinned);
   applyOpacity();
+  if (pinned) startMiddleClickWatch(); else stopMiddleClickWatch();
   rebuildTrayMenu();
 }
 
@@ -570,7 +654,10 @@ if (!gotLock) {
 }
 
 app.on('window-all-closed', () => { /* keep running in tray */ });
-app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+  stopMiddleClickWatch();
+});
 
 // ---- IPC ----
 ipcMain.handle('usage:get', () => lastData);
