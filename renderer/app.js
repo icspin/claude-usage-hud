@@ -529,6 +529,7 @@ function fitCompact() {
   el.style.zoom = scale;
 
   window.hud.reportHeight(Math.round(natural * scale));
+  reportPinRect(); // the button moves and scales with the layout
 }
 
 function clamp(v, lo, hi) {
@@ -686,8 +687,35 @@ window.hud.onError((msg) => { $('#status-left').textContent = 'error: ' + msg; }
 window.hud.onPinned((pinned) => {
   $('#app').classList.toggle('pinned', pinned);
   $('#pin-hint').classList.toggle('hidden', !pinned);
+  if (!pinned) $('#unpin-ring').classList.add('hidden');
+  // The hint text appearing shifts the button, so re-measure after layout.
+  requestAnimationFrame(reportPinRect);
 });
 window.hud.onHover((inside) => $('#app').classList.toggle('hot', inside));
+
+// Dwell-to-unpin: report where the pin button sits so the main process can
+// watch that spot, and draw the fill as the dwell accumulates.
+function reportPinRect() {
+  const btn = $('#btn-pin');
+  if (!btn) return;
+  const r = btn.getBoundingClientRect(); // already includes the panel zoom
+  window.hud.reportPinRect({ x: r.left, y: r.top, w: r.width, h: r.height });
+}
+
+window.hud.onUnpinProgress((p) => {
+  const ring = $('#unpin-ring');
+  if (!ring) return;
+  if (!p) { ring.classList.add('hidden'); return; }
+  const btn = $('#btn-pin');
+  const r = btn.getBoundingClientRect();
+  const size = Math.max(r.width, r.height) + 10;
+  ring.style.left = `${r.left + r.width / 2 - size / 2}px`;
+  ring.style.top = `${r.top + r.height / 2 - size / 2}px`;
+  ring.style.width = `${size}px`;
+  ring.style.height = `${size}px`;
+  ring.style.setProperty('--p', String(p));
+  ring.classList.remove('hidden');
+});
 // Resizing the window re-fits the panel. reportHeight only acts on deltas
 // greater than a few pixels, so this settles after one pass instead of looping.
 window.hud.onWinSize(() => {
@@ -707,4 +735,5 @@ window.hud.onSettings((s) => {
   $('#app').classList.toggle('compact', !!settings.compact);
   const d = await window.hud.getData();
   if (d) { data = d; render(); }
+  requestAnimationFrame(reportPinRect);
 })();

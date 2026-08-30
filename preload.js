@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('hud', {
   reportHeight: (h) => ipcRenderer.send('hud:reportHeight', h),
   onHover: (cb) => ipcRenderer.on('hud:hover', (_e, inside) => cb(inside)),
   onWinSize: (cb) => ipcRenderer.on('hud:winsize', (_e, width) => cb(width)),
+  onUnpinProgress: (cb) => ipcRenderer.on('hud:unpinProgress', (_e, p) => cb(p)),
+  reportPinRect: (r) => ipcRenderer.send('hud:pinRect', r),
   hide: () => ipcRenderer.send('hud:hide'),
   updateSettings: (patch) => ipcRenderer.send('hud:updateSettings', patch),
   openExternal: (url) => ipcRenderer.send('hud:openExternal', url),

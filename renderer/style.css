@@ -286,3 +286,16 @@ textarea.pricing {
 /* The pace tick is clock-derived, so it stays meaningful on stale data — but
    make it match the dimmed bar so it does not imply the fill is current. */
 .cbar > i.dim ~ .ctick { opacity: 0.4; }
+
+/* Dwell-to-unpin indicator: a ring that fills over the pin button while the
+   cursor rests on it. Purely visual — the window is click-through when pinned. */
+#unpin-ring {
+  position: fixed;
+  z-index: 60;
+  border-radius: 50%;
+  pointer-events: none;
+  background: conic-gradient(var(--accent) calc(var(--p, 0) * 360deg), rgba(255, 255, 255, 0.14) 0);
+  -webkit-mask: radial-gradient(circle, transparent 55%, #000 58%);
+  transition: opacity 0.15s ease;
+}
+#unpin-ring.hidden { display: none !important; }

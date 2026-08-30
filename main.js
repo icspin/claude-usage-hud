@@ -383,6 +383,47 @@ function startTopmostKeeper() {
   screen.on('display-removed', () => reassertTopmost(true));
 }
 
+// ---- dwell on the pin button to unpin ----
+// A pinned window is click-through, so it cannot be clicked. Hovering costs
+// nothing though: rest the cursor on the pin button and it releases, with a
+// ring filling so the gesture is visible rather than a hidden trick. The
+// renderer reports the button's rect (already zoom-adjusted) so the target
+// tracks the panel's scale.
+const UNPIN_DWELL_MS = 1100;
+const HOTSPOT_PAD = 8;
+let pinRect = null;
+let dwellStart = 0;
+
+function sendUnpinProgress(p) {
+  if (win && !win.isDestroyed()) win.webContents.send('hud:unpinProgress', p);
+}
+
+function updateUnpinDwell(cursor) {
+  if (!settings.pinned || !pinRect || !win || win.isDestroyed()) {
+    if (dwellStart) { dwellStart = 0; sendUnpinProgress(0); }
+    return;
+  }
+  const b = win.getBounds();
+  const x0 = b.x + pinRect.x - HOTSPOT_PAD;
+  const y0 = b.y + pinRect.y - HOTSPOT_PAD;
+  const inside =
+    cursor.x >= x0 && cursor.x <= x0 + pinRect.w + HOTSPOT_PAD * 2 &&
+    cursor.y >= y0 && cursor.y <= y0 + pinRect.h + HOTSPOT_PAD * 2;
+
+  if (!inside) {
+    if (dwellStart) { dwellStart = 0; sendUnpinProgress(0); }
+    return;
+  }
+  if (!dwellStart) dwellStart = Date.now();
+  const progress = Math.min(1, (Date.now() - dwellStart) / UNPIN_DWELL_MS);
+  sendUnpinProgress(progress);
+  if (progress >= 1) {
+    dwellStart = 0;
+    sendUnpinProgress(0);
+    setPinned(false);
+  }
+}
+
 // ---- hover detection via cursor polling ----
 // CSS :hover is unreliable in click-through (pinned) mode, so the main process
 // tracks whether the cursor is inside the window and tells the renderer.
@@ -394,6 +435,7 @@ function startHoverPolling() {
     const p = screen.getCursorScreenPoint();
     const b = win.getBounds();
     const inside = p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height;
+    updateUnpinDwell(p);
     if (inside !== hoverState) {
       hoverState = inside;
       win.webContents.send('hud:hover', inside);
@@ -689,6 +731,10 @@ ipcMain.on('hud:reportHeight', (_e, h) => {
     unsafeDisplays.add(dispId);
     win.setBounds({ x: b.x, y: b.y, width: b.width, height: after.height });
   }
+});
+
+ipcMain.on('hud:pinRect', (_e, r) => {
+  if (r && Number.isFinite(r.x) && Number.isFinite(r.y) && r.w > 0 && r.h > 0) pinRect = r;
 });
 
 ipcMain.on('hud:setCompact', (_e, compact) => {
