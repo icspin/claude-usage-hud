@@ -302,60 +302,25 @@ function startTopmostKeeper() {
 }
 
 // ---- right-drag to set idle opacity ----
-// Most of the panel is a native drag region, so right-clicks there arrive as
-// non-client messages the page never sees. Hooking the window messages catches
-// both cases without another process. Dragging right brightens the resting
-// opacity, left fades it; that resting value is what you see when the cursor
-// is away and whenever the window is pinned.
-const WM_RBUTTONDOWN = 0x0204;
-const WM_RBUTTONUP = 0x0205;
-const WM_NCRBUTTONDOWN = 0x00A4;
-const WM_NCRBUTTONUP = 0x00A5;
-const OPACITY_DRAG_PX = 320; // full 0..1 sweep over this many pixels
-
-let opacityDrag = null;
-
-function startOpacityDrag() {
-  if (opacityDrag || !win || win.isDestroyed() || settings.pinned) return;
-  const { screen } = require('electron');
-  opacityDrag = {
-    startX: screen.getCursorScreenPoint().x,
-    startOpacity: settings.idleOpacity ?? 0.55,
-    timer: setInterval(() => {
-      if (!opacityDrag || !win || win.isDestroyed()) return;
-      const dx = screen.getCursorScreenPoint().x - opacityDrag.startX;
-      const next = Math.max(0.15, Math.min(1, opacityDrag.startOpacity + dx / OPACITY_DRAG_PX));
-      settings.idleOpacity = Math.round(next * 100) / 100;
-      win.setOpacity(settings.idleOpacity); // preview it directly, hover or not
-      win.webContents.send('hud:opacityPreview', settings.idleOpacity);
-    }, 25),
-    // Safety net: if the button-up message is missed (the cursor can leave the
-    // window mid-drag), don't get stuck adjusting forever.
-    guard: setTimeout(() => endOpacityDrag(), 15000),
-  };
+// Driven from the renderer: the panel body is deliberately not a drag region,
+// so it receives the right button and the Windows system menu never appears.
+// The value set here is the resting opacity — what you see when the cursor is
+// away, and whenever the window is pinned.
+function setIdleOpacityLive(v) {
+  if (!win || win.isDestroyed()) return;
+  const next = Math.max(0.15, Math.min(1, Number(v)));
+  if (!Number.isFinite(next)) return;
+  settings.idleOpacity = Math.round(next * 100) / 100;
+  win.setOpacity(settings.idleOpacity); // preview it directly, hovered or not
+  win.webContents.send('hud:opacityPreview', settings.idleOpacity);
 }
 
-function endOpacityDrag() {
-  if (!opacityDrag) return;
-  clearInterval(opacityDrag.timer);
-  clearTimeout(opacityDrag.guard);
-  opacityDrag = null;
+function endIdleOpacityDrag() {
+  if (!win || win.isDestroyed()) return;
   saveSettings();
   applyOpacity();
-  if (win && !win.isDestroyed()) {
-    win.webContents.send('hud:opacityPreview', null);
-    win.webContents.send('hud:settings', publicSettings());
-  }
-}
-
-function hookOpacityDrag() {
-  if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
-  try {
-    win.hookWindowMessage(WM_RBUTTONDOWN, startOpacityDrag);
-    win.hookWindowMessage(WM_NCRBUTTONDOWN, startOpacityDrag);
-    win.hookWindowMessage(WM_RBUTTONUP, endOpacityDrag);
-    win.hookWindowMessage(WM_NCRBUTTONUP, endOpacityDrag);
-  } catch { /* not available; the Settings slider still works */ }
+  win.webContents.send('hud:opacityPreview', null);
+  win.webContents.send('hud:settings', publicSettings());
 }
 
 // ---- dwell on the pin button to unpin ----
@@ -534,8 +499,6 @@ function createWindow() {
   win.on('restore', () => reassertTopmost(true));
   win.on('blur', () => reassertTopmost(false));
   win.on('closed', () => { win = null; });
-  win.on('blur', () => endOpacityDrag()); // release if focus is lost mid-drag
-  hookOpacityDrag();
 
   win.webContents.on('did-finish-load', () => {
     if (!win.isVisible()) win.showInactive(); // belt and suspenders for the show race
@@ -747,6 +710,9 @@ ipcMain.on('hud:hide', () => { if (win) win.hide(); rebuildTrayMenu(); });
 // next launch. The size is now yours alone; the renderer scales its content to
 // fit whatever you choose (see fitCompact), so nothing is ever clipped.
 ipcMain.on('hud:reportHeight', () => {});
+
+ipcMain.on('hud:opacityLive', (_e, v) => setIdleOpacityLive(v));
+ipcMain.on('hud:opacityEnd', () => endIdleOpacityDrag());
 
 ipcMain.on('hud:pinRect', (_e, r) => {
   if (r && Number.isFinite(r.x) && Number.isFinite(r.y) && r.w > 0 && r.h > 0) pinRect = r;

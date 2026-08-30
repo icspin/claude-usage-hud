@@ -108,8 +108,10 @@ body {
 .redge-l { top: 0; bottom: 0; left: 0; width: 5px; }
 .redge-r { top: 0; bottom: 0; right: 0; width: 5px; }
 
-/* Compact view has nothing to click or scroll, so the whole surface drags. */
-.app.compact .content { -webkit-app-region: drag; }
+/* The body is NOT a drag region: Windows treats drag regions as title bar, so
+   right-clicking one opens the system menu and the page never sees the click.
+   The body is needed for the right-drag opacity gesture, so window moving is
+   done from the title bar only. */
 button, input, textarea, select, a, .tab, .cstack, table { -webkit-app-region: no-drag; }
 
 .tb-btn {

@@ -702,6 +702,36 @@ function reportPinRect() {
   window.hud.reportPinRect({ x: r.left, y: r.top, w: r.width, h: r.height });
 }
 
+// Right-drag anywhere on the panel body sets the resting opacity. Pointer
+// capture keeps it tracking even when the cursor leaves the window mid-drag.
+const OPACITY_SWEEP_PX = 320; // pixels for a full 0..1 sweep
+let opacityDrag = null;
+
+document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+document.addEventListener('pointerdown', (e) => {
+  if (e.button !== 2 || !settings || settings.pinned) return;
+  if (e.target.closest('input, textarea, select')) return;
+  opacityDrag = { x: e.screenX, start: settings.idleOpacity ?? 0.55 };
+  try { e.target.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
+  e.preventDefault();
+});
+
+document.addEventListener('pointermove', (e) => {
+  if (!opacityDrag) return;
+  const v = clamp(opacityDrag.start + (e.screenX - opacityDrag.x) / OPACITY_SWEEP_PX, 0.15, 1);
+  window.hud.setOpacityLive(Math.round(v * 100) / 100);
+});
+
+function finishOpacityDrag() {
+  if (!opacityDrag) return;
+  opacityDrag = null;
+  window.hud.endOpacityDrag();
+}
+document.addEventListener('pointerup', (e) => { if (e.button === 2) finishOpacityDrag(); });
+document.addEventListener('pointercancel', finishOpacityDrag);
+window.addEventListener('blur', finishOpacityDrag);
+
 // Live readout while right-dragging to set the resting opacity.
 window.hud.onOpacityPreview((v) => {
   const hud = $('#op-hud');
