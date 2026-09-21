@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, ipcMain, globalShortcut, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, globalShortcut, nativeImage, shell, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -8,6 +8,7 @@ const { UsageScanner } = require('./src/scanner');
 const { aggregate } = require('./src/aggregate');
 const { DEFAULT_PRICING } = require('./src/pricing');
 const { createTaskbarStrip } = require('./src/taskbar-strip');
+const { createThrottle, DEFAULT_THROTTLE } = require('./src/throttle');
 
 const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 
@@ -30,6 +31,7 @@ const DEFAULT_SETTINGS = {
   stripOffset: 12,
   capPopup: null, // {width, height} of the capture dashboard popup
   captureDashboard: null, // optional, see src/taskbar-strip.js
+  throttle: DEFAULT_THROTTLE, // pace alerts, see src/throttle.js
 };
 
 const COMPACT_HEIGHT = 222;
@@ -47,6 +49,11 @@ let hoverTimer = null;
 let taskbarStrip = null;
 let hoverState = false;
 let topmostTimer = null;
+let throttle = null;
+let lastEntries = null;
+let lastMeta = new Map();
+let lastTitles = new Map();
+let lastThrottleCheck = 0;
 
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 
@@ -62,6 +69,7 @@ function loadSettings() {
   s.pinned = false;
   s.bounds = sanitizeBounds(s.bounds);
   s.fullBounds = s.fullBounds ? sanitizeBounds(s.fullBounds) : null;
+  s.throttle = { ...DEFAULT_THROTTLE, ...(s.throttle || {}) };
   return s;
 }
 
@@ -109,8 +117,13 @@ async function poll() {
     const entries = await scanner.scan();
     const meta = scanner.readSessionMeta();
     lastData = aggregate(entries, meta, activePricing());
+    lastEntries = entries;
+    lastMeta = meta;
+    lastTitles = scanner.transcriptTitles();
     pushData();
     updateTrayTooltip();
+    // Scans run every few seconds; a pace check once a minute is plenty.
+    if (Date.now() - lastThrottleCheck > 60 * 1000) checkThrottle();
   } catch (err) {
     if (win && !win.isDestroyed()) win.webContents.send('usage:error', String(err));
   } finally {
@@ -136,6 +149,8 @@ function parseLimits(json) {
       windows.push({
         key: l.kind + (label || ''),
         label,
+        kind: l.kind === 'session' ? 'session' : 'weekly',
+        scopeModel: (l.scope && l.scope.model && l.scope.model.display_name) || null,
         pct: Math.max(0, Math.min(100, l.percent)),
         resetsAt: l.resets_at ? Date.parse(l.resets_at) : null,
         severity: l.severity || 'normal',
@@ -150,12 +165,15 @@ function parseLimits(json) {
     seven_day_opus: 'Week (Opus)',
     seven_day_sonnet: 'Week (Sonnet)',
   };
+  const legacyModel = { seven_day_opus: 'Opus', seven_day_sonnet: 'Sonnet' };
   for (const [key, label] of Object.entries(map)) {
     const w = json && json[key];
     if (w && typeof w.utilization === 'number') {
       windows.push({
         key,
         label,
+        kind: key === 'five_hour' ? 'session' : 'weekly',
+        scopeModel: legacyModel[key] || null,
         pct: Math.max(0, Math.min(100, w.utilization)),
         resetsAt: w.resets_at ? Date.parse(w.resets_at) : null,
         severity: 'normal',
@@ -219,6 +237,40 @@ async function fetchLimits() {
     }
   }
   pushData();
+  checkThrottle();
+}
+
+// ---- throttle alerts (src/throttle.js) ----
+// Suggest only: the alert names the sessions burning the window and opens the
+// Session Manager, which is where a model or effort change actually happens.
+function throttleInput() {
+  return { limits: lastLimits, entries: lastEntries, meta: lastMeta, titles: lastTitles, pricing: activePricing() };
+}
+
+function checkThrottle() {
+  if (!throttle || !lastEntries) return;
+  lastThrottleCheck = Date.now();
+  try { throttle.evaluate(throttleInput()); } catch { /* never let an alert break the HUD */ }
+}
+
+function openSessionManager(url) {
+  const u = url || (settings.throttle && settings.throttle.sessionManagerUrl);
+  if (typeof u === 'string' && /^(claude|https):\/\//.test(u)) shell.openExternal(u);
+}
+
+let lastNotification = null; // held so Windows keeps the click handler alive
+function showThrottleNotification(alert) {
+  if (!Notification.isSupported()) return;
+  const n = new Notification({
+    title: alert.title,
+    body: alert.body,
+    icon: path.join(__dirname, 'assets', 'icon.png'),
+    // Strong alerts stay up until dismissed; the warning times out normally.
+    timeoutType: alert.strong ? 'never' : 'default',
+  });
+  n.on('click', () => openSessionManager(alert.url));
+  n.show();
+  lastNotification = n;
 }
 
 // Refreshing the OAuth token by invoking the Claude CLI, rather than using the
@@ -603,6 +655,7 @@ function publicSettings() {
     pinned: settings.pinned,
     pricing: activePricing(),
     pricingIsCustom: !!settings.pricing,
+    throttle: settings.throttle,
     claudeDir: CLAUDE_DIR,
   };
 }
@@ -643,6 +696,9 @@ function rebuildTrayMenu() {
       },
     },
     { type: 'separator' },
+    ...(settings.throttle && settings.throttle.sessionManagerUrl
+      ? [{ label: 'Open Session Manager', click: () => openSessionManager() }]
+      : []),
     { label: 'Rescan now', click: poll },
     {
       label: 'Reset size & position',
@@ -678,9 +734,19 @@ if (!gotLock) {
     if (win) { win.show(); win.focus(); }
   });
 
+  // Toasts on Windows are attributed by AppUserModelID; this matches the
+  // installer's shortcut, without which notifications silently never show.
+  app.setAppUserModelId('com.icspin.claudeusagehud');
+
   app.whenReady().then(() => {
     settings = loadSettings();
     scanner = new UsageScanner(CLAUDE_DIR);
+    throttle = createThrottle({
+      getSettings: () => settings,
+      statePath: path.join(app.getPath('userData'), 'throttle-state.json'),
+      logPath: path.join(app.getPath('userData'), 'throttle.log'),
+      notify: showThrottleNotification,
+    });
 
     createWindow({ startHidden: settings.taskbarStrip !== false });
 
@@ -773,6 +839,7 @@ ipcMain.on('hud:setCompact', (_e, compact) => {
 
 ipcMain.on('hud:updateSettings', (_e, patch) => {
   const restartPoll = patch.pollIntervalMs && patch.pollIntervalMs !== settings.pollIntervalMs;
+  if (patch.throttle) patch = { ...patch, throttle: { ...settings.throttle, ...patch.throttle } };
   Object.assign(settings, patch);
   saveSettings();
   if (patch.idleOpacity !== undefined) applyOpacity();
@@ -782,6 +849,11 @@ ipcMain.on('hud:updateSettings', (_e, patch) => {
   if (patch.pricing !== undefined) poll(); // recompute costs with new rates
   if (win && !win.isDestroyed()) win.webContents.send('hud:settings', publicSettings());
   rebuildTrayMenu();
+});
+
+ipcMain.handle('hud:throttleTest', () => {
+  if (!throttle) return { error: 'not ready' };
+  try { return throttle.testAlert(throttleInput()); } catch (err) { return { error: String(err.message || err) }; }
 });
 
 ipcMain.on('hud:openExternal', (_e, url) => {

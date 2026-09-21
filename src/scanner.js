@@ -40,9 +40,22 @@ class UsageScanner {
 
   async parseFile(filePath, projectDir) {
     const entries = [];
+    // Session titles, latest record wins: a user rename (custom-title), the
+    // desktop app's task name (agent-name), then the auto title (ai-title).
+    const titles = {};
     const stream = fs.createReadStream(filePath, { encoding: 'utf8' });
     const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
     for await (const line of rl) {
+      // Title records are small top-level lines; match the prefix so an
+      // assistant message that merely mentions these fields is not swallowed.
+      if (/^\{"type":"(custom-title|agent-name|ai-title)"/.test(line)) {
+        try {
+          const t = JSON.parse(line);
+          const v = t.customTitle || t.agentName || t.aiTitle;
+          if (v && t.sessionId) (titles[t.sessionId] = titles[t.sessionId] || {})[t.type] = v;
+        } catch { /* malformed */ }
+        continue;
+      }
       // Cheap pre-filter before paying for JSON.parse on every line.
       if (!line.includes('"usage"') || !line.includes('"assistant"')) continue;
       let o;
@@ -72,7 +85,7 @@ class UsageScanner {
         key: (m.id || o.uuid || '') + ':' + (o.requestId || ''),
       });
     }
-    return entries;
+    return { entries, titles };
   }
 
   // Returns a deduplicated, time-sorted list of usage entries across all transcripts.
@@ -89,8 +102,8 @@ class UsageScanner {
       }
       const cached = this.fileCache.get(file);
       if (cached && cached.size === st.size && cached.mtimeMs === st.mtimeMs) continue;
-      const entries = await this.parseFile(file, projectDir);
-      this.fileCache.set(file, { size: st.size, mtimeMs: st.mtimeMs, entries });
+      const { entries, titles } = await this.parseFile(file, projectDir);
+      this.fileCache.set(file, { size: st.size, mtimeMs: st.mtimeMs, entries, titles });
     }
     for (const p of [...this.fileCache.keys()]) {
       if (!seenPaths.has(p)) this.fileCache.delete(p);
@@ -110,6 +123,18 @@ class UsageScanner {
     return all;
   }
 
+  // sessionId -> best transcript title, or undefined when none was recorded.
+  transcriptTitles() {
+    const out = new Map();
+    for (const { titles } of this.fileCache.values()) {
+      for (const [id, t] of Object.entries(titles || {})) {
+        const v = t['custom-title'] || t['agent-name'] || t['ai-title'];
+        if (v) out.set(id, v);
+      }
+    }
+    return out;
+  }
+
   // ~/.claude/sessions/*.json map running/recent sessions to titles and cwds.
   readSessionMeta() {
     const dir = path.join(this.claudeDir, 'sessions');
@@ -127,7 +152,7 @@ class UsageScanner {
         if (!o.sessionId) continue;
         const prev = meta.get(o.sessionId);
         if (!prev || (o.updatedAt || 0) > (prev.updatedAt || 0)) {
-          meta.set(o.sessionId, { name: o.name, cwd: o.cwd, updatedAt: o.updatedAt, pid: o.pid });
+          meta.set(o.sessionId, { name: o.name, cwd: o.cwd, updatedAt: o.updatedAt, pid: o.pid, hostSessionId: o.hostSessionId });
         }
       } catch { /* ignore unreadable session files */ }
     }

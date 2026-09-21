@@ -230,6 +230,7 @@ function renderBlocks() {
 
 function renderSettings() {
   const s = settings || {};
+  const t = s.throttle || {};
   content.innerHTML = `
     <div class="card"><h3>Behavior</h3>
       <div class="setting-row"><label>Idle opacity</label>
@@ -247,6 +248,30 @@ function renderSettings() {
         <input id="set-planname" type="text" style="width:110px;background:rgba(255,255,255,0.07);border:1px solid var(--border);color:var(--fg);border-radius:6px;padding:3px 6px;" value="${esc(s.planName || '')}" /></div>
       <div class="setting-row"><label>Plan price $/mo (0 = hide savings)</label>
         <input id="set-planprice" type="number" min="0" max="2000" value="${s.planPrice ?? 200}" /></div>
+    </div>
+    <div class="card"><h3>Throttle alerts</h3>
+      <div class="setting-row"><label>Alert when a limit is being used too fast</label>
+        <input id="set-thr-on" type="checkbox" ${t.enabled ? 'checked' : ''} /></div>
+      <div class="setting-row"><label>Weekly: warn at pace (x)</label>
+        <input id="set-thr-warn" type="number" min="1" max="3" step="0.05" value="${t.warnPace ?? 1.2}" /></div>
+      <div class="setting-row"><label>Weekly: strong alert at pace (x)</label>
+        <input id="set-thr-strong" type="number" min="1" max="3" step="0.05" value="${t.strongPace ?? 1.5}" /></div>
+      <div class="setting-row"><label>5-hour window: alert at %</label>
+        <input id="set-thr-hw" type="number" min="10" max="100" step="5" value="${t.sessionHighWater ?? 80}" /></div>
+      <div class="setting-row"><label>Top sessions from the last (hours)</label>
+        <input id="set-thr-look" type="number" min="1" max="24" value="${t.lookbackHours ?? 3}" /></div>
+      <div class="setting-row"><label>Estimate from transcripts when limits are stale</label>
+        <input id="set-thr-est" type="checkbox" ${t.useEstimates ? 'checked' : ''} /></div>
+      <div class="setting-row"><label>Clicking the alert opens</label>
+        <input id="set-thr-url" type="text" placeholder="claude:// session link" style="width:170px;background:rgba(255,255,255,0.07);border:1px solid var(--border);color:var(--fg);border-radius:6px;padding:3px 6px;" value="${esc(t.sessionManagerUrl || '')}" /></div>
+      <div class="note" style="margin:6px 0 3px">Guidance shown in the alert:</div>
+      <textarea id="set-thr-guide" class="pricing" style="height:64px" spellcheck="false">${esc(t.guidance || '')}</textarea>
+      <div style="margin-top:6px; display:flex; gap:6px; align-items:center;">
+        <button id="btn-thr-save" class="btn primary">Save guidance</button>
+        <button id="btn-thr-test" class="btn">Send test alert</button>
+        <span id="thr-test-result" class="muted"></span>
+      </div>
+      <div class="note">Pace = percent used divided by percent of the window gone; 1.0x lands exactly on 100% at the reset. Each level alerts once per window and re-arms when pace drops 0.1 below it. The alert only suggests; model and effort changes go through the Session Manager.</div>
     </div>
     <div class="card"><h3>Pricing (USD per 1M tokens)${s.pricingIsCustom ? ' · custom' : ' · defaults'}</h3>
       <textarea id="set-pricing" class="pricing" spellcheck="false">${esc(JSON.stringify(s.pricing, null, 2))}</textarea>
@@ -285,6 +310,21 @@ function renderSettings() {
     }
   });
   $('#btn-reset-pricing').addEventListener('click', () => window.hud.updateSettings({ pricing: null }));
+
+  const thr = (patch) => window.hud.updateSettings({ throttle: patch });
+  const num = (el, lo, hi, d) => { const v = parseFloat(el.value); return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d; };
+  $('#set-thr-on').addEventListener('change', (e) => thr({ enabled: e.target.checked }));
+  $('#set-thr-warn').addEventListener('change', (e) => thr({ warnPace: num(e.target, 1, 3, 1.2) }));
+  $('#set-thr-strong').addEventListener('change', (e) => thr({ strongPace: num(e.target, 1, 3, 1.5) }));
+  $('#set-thr-hw').addEventListener('change', (e) => thr({ sessionHighWater: num(e.target, 10, 100, 80) }));
+  $('#set-thr-look').addEventListener('change', (e) => thr({ lookbackHours: num(e.target, 1, 24, 3) }));
+  $('#set-thr-est').addEventListener('change', (e) => thr({ useEstimates: e.target.checked }));
+  $('#set-thr-url').addEventListener('change', (e) => thr({ sessionManagerUrl: e.target.value.trim() }));
+  $('#btn-thr-save').addEventListener('click', () => thr({ guidance: $('#set-thr-guide').value.trim() }));
+  $('#btn-thr-test').addEventListener('click', async () => {
+    const r = await window.hud.throttleTest();
+    $('#thr-test-result').textContent = r && r.ok ? 'sent' : (r && r.error) || 'failed';
+  });
 }
 
 function untilReset(ts) {

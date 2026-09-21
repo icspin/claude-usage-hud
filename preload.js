@@ -21,4 +21,5 @@ contextBridge.exposeInMainWorld('hud', {
   hide: () => ipcRenderer.send('hud:hide'),
   updateSettings: (patch) => ipcRenderer.send('hud:updateSettings', patch),
   openExternal: (url) => ipcRenderer.send('hud:openExternal', url),
+  throttleTest: () => ipcRenderer.invoke('hud:throttleTest'),
 });

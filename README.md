@@ -18,7 +18,7 @@ On a Pro/Max subscription the numbers are **API-equivalent value**, not a bill �
 - **Models** — cost share per model, full token-type breakdown
 - **Daily** — 30-day bar chart and table
 - **5h Blocks** — usage grouped into the same 5-hour windows the subscription rate limits use
-- **Settings** — idle opacity, refresh interval, always-on-top, launch-at-login, and a fully editable pricing table
+- **Settings** — idle opacity, refresh interval, always-on-top, launch-at-login, throttle alerts, and a fully editable pricing table
 
 ### Overlay behavior
 
@@ -46,6 +46,18 @@ A thin, brightly coloured strip laid over the empty left end of the **primary mo
 ```
 
 The dashboard must serve `GET <url>/api/state` returning `{ inflight: [...], runners: [...], archives: [...] }`. If the URL refuses connections and `startExe` is set, the strip starts it (at most every 5 minutes).
+
+### Throttle alerts
+
+A native Windows notification when you are using a limit faster than it refills, naming the sessions burning it so you can move them to a cheaper model or lower effort. It only suggests: the HUD never changes a session's model or effort.
+
+- **Weekly windows** (all models, and each model-scoped cap such as Fable) use **pace** = percent used divided by percent of the window gone. 1.0x lands exactly on 100% at the reset. Defaults: a warning at **1.2x**, a strong alert at **1.5x**, ignored for the first 10% of the week. The alert also says when the window runs out at the current pace.
+- **5-hour window**: a plain high-water mark, default **80%**.
+- **Once per level per window.** A level re-arms when the window resets or pace drops 0.1 below it. What already fired is saved, so restarting the HUD does not repeat an alert.
+- **Top sessions**: the two or three sessions that spent most on the tripped window's model in the last 3 hours, with each one's model. Names come from the session title (a live session's name, or the rename, task name or auto title recorded in its transcript). A session with no recorded title is shown by folder and id, not guessed.
+- **Stale numbers**: if the official limits cannot be refreshed (for example the `claude` CLI is signed out), weekly windows are estimated from the last good reading plus transcript spend since, and the alert says **(est.)**.
+- **Click** the alert to open the link in `throttle.sessionManagerUrl` (for example a `claude://` link to the session you use to switch other sessions' models). The same link is in the tray menu as **Open Session Manager**.
+- Everything is in **Settings, Throttle alerts**: on/off, the levels, lookback, estimates, the click link, the guidance text, and **Send test alert**. Fired alerts are logged to `throttle.log` next to `settings.json`.
 
 > **PowerToys FancyZones users:** FancyZones moves and resizes newly created windows by default (*Move newly created windows to their last known zone* / *to the current active monitor*, with *Restore original size* off). That will relocate this window to another monitor and stretch it to a zone on every launch. Add `Claude Usage HUD.exe` under **FancyZones → Excluded apps** and it will stay exactly where you left it.
 
