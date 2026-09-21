@@ -1,0 +1,67 @@
+/* Taskbar strip - deliberately loud. Solid saturated panels so it reads at a
+   glance from across the desk, whatever the wallpaper tints the taskbar. */
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  /* Nearly invisible but NOT zero: fully transparent pixels in a layered
+     window are click-through on Windows. */
+  background: rgba(0, 0, 0, 0.01);
+  font: 600 13px 'Segoe UI Variable Display', 'Segoe UI', sans-serif;
+  color: #fff;
+  user-select: none;
+  cursor: pointer;
+}
+.strip { display: flex; align-items: stretch; gap: 6px; height: 100%; padding: 3px 0; box-sizing: border-box; }
+.sec {
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 12px; border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.35);
+  transition: filter 0.12s;
+}
+.sec:hover { filter: brightness(1.18); }
+.sec.open { border-color: #fff; box-shadow: 0 0 0 2px #fff inset; }
+.div { display: none; }
+
+/* ---- HUD panel: electric violet ---- */
+.hud { background: linear-gradient(135deg, #5b2bff 0%, #9b2cff 100%); }
+.bars { display: flex; gap: 14px; align-items: center; }
+.b { display: flex; flex-direction: column; gap: 4px; min-width: 62px; }
+.b .top { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; line-height: 13px; }
+.b .top .n { color: rgba(255, 255, 255, 0.85); font-weight: 600; }
+.b .top .v { font-weight: 800; }
+.b .track { height: 6px; border-radius: 3px; background: rgba(0, 0, 0, 0.35); position: relative; }
+/* Pace car: where even pace would put you right now. White with a dark edge so
+   it reads on the violet panel and on top of the cyan fill alike. */
+.b .track .tick {
+  position: absolute; top: -3px; bottom: -3px; width: 3px; margin-left: -1.5px;
+  background: #fff; border-radius: 1px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+}
+.b .track i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: #00e5ff; box-shadow: 0 0 6px #00e5ff; }
+.b.warn .track i { background: #ffd600; box-shadow: 0 0 6px #ffd600; } .b.warn .v { color: #ffe54c; }
+.b.hot .track i { background: #ff2d55; box-shadow: 0 0 6px #ff2d55; }  .b.hot .v { color: #ff8fa6; }
+.b.stale { opacity: 0.55; }
+.money { display: flex; flex-direction: column; line-height: 15px; font-size: 11.5px; color: rgba(255, 255, 255, 0.85); }
+.money b { color: #ffe600; font-size: 15px; font-weight: 800; text-shadow: 0 0 6px rgba(255, 230, 0, 0.45); }
+
+/* ---- capture panel: colour IS the status ---- */
+.cap { min-width: 260px; max-width: 420px; background: #37373f; }
+.cap.st-rec { background: linear-gradient(135deg, #ff1744 0%, #d5003c 100%); animation: glow 1.8s ease-in-out infinite; }
+.cap.st-ok { background: linear-gradient(135deg, #00c853 0%, #009e42 100%); }
+.cap.st-work { background: linear-gradient(135deg, #2979ff 0%, #0050d8 100%); }
+.cap.st-bad { background: linear-gradient(135deg, #ffab00 0%, #ff8f00 100%); color: #1a1200; }
+.cap.st-bad .l2, .cap.st-bad .dim { color: rgba(26, 18, 0, 0.8); }
+@keyframes glow { 50% { box-shadow: 0 0 16px #ff1744, 0 0 2px #fff inset; } }
+
+.dot { width: 11px; height: 11px; border-radius: 50%; background: #fff; flex: none; }
+.dot.rec { animation: pulse 1.1s ease-in-out infinite; box-shadow: 0 0 8px #fff; }
+.dot.ok { background: #eaffef; }
+.dot.bad { background: #1a1200; }
+@keyframes pulse { 50% { opacity: 0.25; } }
+.captext { display: flex; flex-direction: column; line-height: 16px; min-width: 0; }
+.l1 { font-size: 13.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.l2 { font-size: 11.5px; font-weight: 600; color: rgba(255, 255, 255, 0.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dim { color: rgba(255, 255, 255, 0.8); font-weight: 600; }
+.warnc { color: #fff3b0; font-weight: 800; }
+.st-bad .warnc { color: #1a1200; }

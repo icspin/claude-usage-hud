@@ -28,6 +28,25 @@ On a Pro/Max subscription the numbers are **API-equivalent value**, not a bill �
 - **Right-click and drag** across the panel body to set its resting opacity (the level it sits at when you are not hovering, and while pinned). A readout follows the drag.
 - Lives in the system tray; closing just hides it
 
+### Taskbar strip
+
+A thin, brightly coloured strip laid over the empty left end of the **primary monitor's taskbar** (Windows 11 has no deskband API, so it is a topmost window kept exactly on the taskbar). With it on, the HUD starts hidden and lives behind the strip.
+
+- **Usage panel** (violet): the official limit bars with the same even-pace notch as the HUD, plus today's and this week's spend. Stale numbers are dimmed. **Click** to show or hide the full HUD just above it.
+- **Capture panel** (optional): if `captureDashboard` is set in `settings.json`, a second panel shows a local capture pipeline's state. Line 1 counts what is active (`2 REC · 1 RENDER · 1 UPLOAD · 3 QUEUED`), line 2 cycles through each item every 4 s. Colour is the most urgent state: red = recording, amber = failure / runner down / dashboard offline, blue = rendering or uploading, green = idle and healthy. **Click** to pop the dashboard up above the strip; click anywhere else and it hides.
+- Hides itself while a fullscreen app covers the primary display, like the real taskbar.
+- Toggle from the tray menu (**Taskbar strip**) or right-click the strip. Width and offset: `stripWidth`, `stripOffset` in `settings.json`.
+
+```json
+"captureDashboard": {
+  "url": "http://127.0.0.1:8791",
+  "startExe": "C:\path\to\pythonw.exe",
+  "startArgs": ["C:\path\to\dashboard.py", "--port", "8791"]
+}
+```
+
+The dashboard must serve `GET <url>/api/state` returning `{ inflight: [...], runners: [...], archives: [...] }`. If the URL refuses connections and `startExe` is set, the strip starts it (at most every 5 minutes).
+
 > **PowerToys FancyZones users:** FancyZones moves and resizes newly created windows by default (*Move newly created windows to their last known zone* / *to the current active monitor*, with *Restore original size* off). That will relocate this window to another monitor and stretch it to a zone on every launch. Add `Claude Usage HUD.exe` under **FancyZones → Excluded apps** and it will stay exactly where you left it.
 
 ## Install

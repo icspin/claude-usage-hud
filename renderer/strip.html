@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+<link rel="stylesheet" href="strip.css">
+</head>
+<body>
+  <div class="strip">
+    <div class="sec hud" id="hud" title="Claude usage - click to show or hide the HUD">
+      <div class="bars" id="bars"><span class="dim">Claude usage...</span></div>
+      <div class="money" id="money"></div>
+    </div>
+    <div class="div"></div>
+    <div class="sec cap" id="cap" title="Capture pipeline - click to show or hide the dashboard">
+      <span class="dot" id="dot"></span>
+      <div class="captext">
+        <div class="l1" id="cap1"><span class="dim">capture...</span></div>
+        <div class="l2" id="cap2"></div>
+      </div>
+    </div>
+  </div>
+  <script src="strip.js"></script>
+</body>
+</html>

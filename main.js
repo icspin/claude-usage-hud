@@ -7,6 +7,7 @@ const os = require('os');
 const { UsageScanner } = require('./src/scanner');
 const { aggregate } = require('./src/aggregate');
 const { DEFAULT_PRICING } = require('./src/pricing');
+const { createTaskbarStrip } = require('./src/taskbar-strip');
 
 const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 
@@ -24,6 +25,11 @@ const DEFAULT_SETTINGS = {
   planPrice: 200, // monthly subscription price for the savings line; 0 hides it
   planName: 'Max 20x',
   autoRefreshToken: true,
+  taskbarStrip: true, // summary strip over the left end of the primary taskbar
+  stripWidth: 860,
+  stripOffset: 12,
+  capPopup: null, // {width, height} of the capture dashboard popup
+  captureDashboard: null, // optional, see src/taskbar-strip.js
 };
 
 const COMPACT_HEIGHT = 222;
@@ -38,6 +44,7 @@ let lastData = null;
 let lastLimits = null;
 let limitsTimer = null;
 let hoverTimer = null;
+let taskbarStrip = null;
 let hoverState = false;
 let topmostTimer = null;
 
@@ -89,9 +96,10 @@ function activePricing() {
 }
 
 function pushData() {
-  if (win && !win.isDestroyed() && lastData) {
-    win.webContents.send('usage:data', { ...lastData, limits: lastLimits });
-  }
+  if (!lastData) return;
+  const payload = { ...lastData, limits: lastLimits };
+  if (win && !win.isDestroyed()) win.webContents.send('usage:data', payload);
+  if (taskbarStrip) taskbarStrip.pushUsage(payload);
 }
 
 async function poll() {
@@ -422,7 +430,7 @@ function setPinned(pinned) {
   rebuildTrayMenu();
 }
 
-function createWindow() {
+function createWindow(opts = {}) {
   const b = settings.bounds || {};
   win = new BrowserWindow({
     width: b.width || 470,
@@ -455,7 +463,8 @@ function createWindow() {
   applyOpacity();
   win.once('ready-to-show', () => {
     if (!win || win.isDestroyed()) return;
-    win.showInactive();
+    // With the taskbar strip on, the HUD starts hidden and opens from the strip.
+    if (!opts.startHidden) win.showInactive();
     restoreSavedBounds();
     ensureOnScreen();
   });
@@ -497,9 +506,13 @@ function createWindow() {
   win.on('restore', () => reassertTopmost(true));
   win.on('blur', () => reassertTopmost(false));
   win.on('closed', () => { win = null; });
+  win.on('show', () => { if (taskbarStrip) taskbarStrip.hudVisibilityChanged(); });
+  win.on('hide', () => { if (taskbarStrip) taskbarStrip.hudVisibilityChanged(); });
 
   win.webContents.on('did-finish-load', () => {
-    if (!win.isVisible()) win.showInactive(); // belt and suspenders for the show race
+    // Belt and suspenders for the show race - but not when the taskbar strip
+    // owns the HUD's visibility, or this silently undoes "start hidden".
+    if (!opts.startHidden && !win.isVisible()) win.showInactive();
     sendWinSize();
     win.webContents.send('hud:settings', publicSettings());
     win.webContents.send('hud:pinned', settings.pinned);
@@ -608,6 +621,10 @@ function rebuildTrayMenu() {
       label: settings.pinned ? 'Unpin (make clickable)' : 'Pin (click-through)',
       click: () => setPinned(!settings.pinned),
     },
+    {
+      label: 'Taskbar strip', type: 'checkbox', checked: settings.taskbarStrip !== false,
+      click: (item) => { if (taskbarStrip) taskbarStrip.setEnabled(item.checked); },
+    },
     { type: 'separator' },
     {
       label: 'Always on top', type: 'checkbox', checked: settings.alwaysOnTop,
@@ -665,7 +682,7 @@ if (!gotLock) {
     settings = loadSettings();
     scanner = new UsageScanner(CLAUDE_DIR);
 
-    createWindow();
+    createWindow({ startHidden: settings.taskbarStrip !== false });
 
     tray = new Tray(trayIcon() || nativeImage.createEmpty());
     tray.setToolTip('Claude Usage HUD');
@@ -678,6 +695,27 @@ if (!gotLock) {
     startPolling();
     startHoverPolling();
     startTopmostKeeper();
+
+    taskbarStrip = createTaskbarStrip({
+      getSettings: () => settings,
+      saveSettings,
+      getHud: () => win,
+      showHud: (place) => {
+        if (!win || win.isDestroyed()) {
+          createWindow();
+          // createWindow restores the saved bounds on ready-to-show; place after.
+          win.once('ready-to-show', () => setTimeout(() => { place(win); rebuildTrayMenu(); }, 50));
+          return;
+        }
+        place(win);
+        win.show();
+        rebuildTrayMenu();
+      },
+      hideHud: () => { if (win && !win.isDestroyed()) win.hide(); rebuildTrayMenu(); },
+      rebuildTrayMenu,
+    });
+    taskbarStrip.start();
+    pushData();
     // Seed with the last successful limits fetch so a restart during an API
     // backoff still shows bars (marked stale until refreshed).
     try {
@@ -693,6 +731,7 @@ if (!gotLock) {
 app.on('window-all-closed', () => { /* keep running in tray */ });
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  if (taskbarStrip) taskbarStrip.stop();
 });
 
 // ---- IPC ----
