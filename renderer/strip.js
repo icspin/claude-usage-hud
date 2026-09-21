@@ -29,6 +29,21 @@ function evenPacePct(w) {
   return (elapsed / windowMs) * 100;
 }
 
+// Bar colour from usage vs expected, mirroring the HUD's paceInfo projection:
+// where will this window end at the current rate?  red = runs out before it
+// resets, yellow = lands at 80-100%, green = under 80%. Early in a window
+// (<10% elapsed) a projection is noise, so fall back to plain thresholds.
+function paceCls(w) {
+  if ((w.severity && w.severity !== 'normal') || w.pct >= 90) return 'hot';
+  const windowMs = windowMsFor(w);
+  const elapsed = w.resetsAt ? windowMs - (w.resetsAt - Date.now()) : NaN;
+  if (Number.isFinite(elapsed) && elapsed >= windowMs * 0.1 && elapsed <= windowMs && w.pct >= 3) {
+    const projectedEnd = w.pct * (windowMs / elapsed);
+    return projectedEnd >= 100 ? 'hot' : projectedEnd >= 80 ? 'warn' : 'ok';
+  }
+  return w.pct >= 80 ? 'hot' : w.pct >= 60 ? 'warn' : 'ok';
+}
+
 function renderUsage(data) {
   if (!data || !data.totals) return;
   const lim = data.limits;
@@ -38,7 +53,7 @@ function renderUsage(data) {
       if (w.key === 'seven_day_sonnet' && w.pct === 0) continue;
       const expired = w.resetsAt && w.resetsAt < Date.now();
       const pct = expired ? 0 : w.pct;
-      const cls = expired || lim.stale ? 'stale' : pct >= 80 ? 'hot' : pct >= 60 ? 'warn' : '';
+      const cls = expired || lim.stale ? 'stale' : paceCls(w);
       out.push(`<div class="b ${cls}"><div class="top"><span class="n">${esc(shortLabel(w.label))}</span>` +
         `<span class="v">${expired ? '-' : pct.toFixed(0) + '%'}</span></div>` +
         `<div class="track"><i style="width:${Math.min(100, pct).toFixed(1)}%"></i>${tickHtml(w)}</div></div>`);

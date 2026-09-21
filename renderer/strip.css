@@ -39,6 +39,7 @@ html, body {
   background: #fff; border-radius: 1px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
 }
 .b .track i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: #00e5ff; box-shadow: 0 0 6px #00e5ff; }
+.b.ok .track i { background: #00e676; box-shadow: 0 0 6px #00e676; } .b.ok .v { color: #b9ffd6; }
 .b.warn .track i { background: #ffd600; box-shadow: 0 0 6px #ffd600; } .b.warn .v { color: #ffe54c; }
 .b.hot .track i { background: #ff2d55; box-shadow: 0 0 6px #ff2d55; }  .b.hot .v { color: #ff8fa6; }
 .b.stale { opacity: 0.55; }
