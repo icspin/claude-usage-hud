@@ -730,8 +730,15 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
+  // A second launch (Start menu, a relaunch script) has already quit itself;
+  // bring this instance's strip and HUD forward instead of creating new ones.
   app.on('second-instance', () => {
-    if (win) { win.show(); win.focus(); }
+    if (!app.isReady()) return;
+    if (taskbarStrip && taskbarStrip.reveal()) return;
+    if (!win || win.isDestroyed()) createWindow();
+    else win.show();
+    win.focus();
+    rebuildTrayMenu();
   });
 
   // Toasts on Windows are attributed by AppUserModelID; this matches the

@@ -346,6 +346,23 @@ function createTaskbarStrip(o) {
     o.rebuildTrayMenu();
   }
 
+  // A second launch of the app (it quits itself; see main.js) lands here:
+  // bring the strip back up and open the HUD above it. Returns false when the
+  // strip is off or can't show (disabled, fullscreen app, no bottom taskbar),
+  // so the caller falls back to showing the HUD on its own.
+  function reveal() {
+    refreshVisibility();
+    const up = !!(strip && !strip.isDestroyed() && strip.isVisible());
+    const hud = o.getHud();
+    const hudUp = !!(hud && !hud.isDestroyed() && hud.isVisible());
+    slog(`second-instance strip=${up} hudVisible=${hudUp}`);
+    if (!up) return false;
+    if (!hudUp) toggleHud(0);
+    const h = o.getHud();
+    if (h && !h.isDestroyed()) h.focus();
+    return true;
+  }
+
   function start() {
     refreshVisibility();
     pollCapture();
@@ -367,6 +384,7 @@ function createTaskbarStrip(o) {
     start,
     stop,
     setEnabled,
+    reveal,
     isEnabled: enabled,
     pushUsage(data) { lastUsage = data; send('usage:data', data); },
     hudVisibilityChanged: sendOpen,
