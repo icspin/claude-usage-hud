@@ -86,6 +86,14 @@ function setStatus(st) {
 
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const pctTxt = (p) => (Number.isFinite(p) ? ` ${Math.round(p)}%` : '');
+// Same wording as the capture dashboard popup's mins(): "~22 min left", "~1 h 5 min left".
+function leftTxt(w) {
+  if (Number.isFinite(w.stalled) && w.stalled > 0) return ` &middot; <span class="warnc">no progress for ${w.stalled} min</span>`;
+  if (!Number.isFinite(w.eta)) return '';
+  const m = Math.round(w.eta / 60);
+  const t = m < 1 ? 'under a minute' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+  return ` &middot; ~${t} left`;
+}
 
 // One entry per active thing; line 2 cycles through them.
 function items(c) {
@@ -96,7 +104,7 @@ function items(c) {
       : `<b>${esc(r.name)}</b> ${fmtDur(r.elapsed)} &middot; ${r.mb.toLocaleString()} MB &middot; ${r.chat.toLocaleString()} chat`);
   }
   for (const w of c.work) {
-    if (w.kind === 'render') out.push(`<b>${esc(w.name)}</b> rendering${pctTxt(w.pct)} &middot; ${esc(w.detail)}`);
+    if (w.kind === 'render') out.push(`<b>${esc(w.name)}</b> rendering${pctTxt(w.pct)}${leftTxt(w)} &middot; ${esc(w.detail)}`);
     else if (w.kind === 'upload') out.push(`<b>${esc(w.name)}</b> uploading${pctTxt(w.pct)}`);
     else if (w.kind === 'failed') out.push(`<b>${esc(w.name)}</b> render FAILED &middot; ${esc(w.detail)}`);
   }

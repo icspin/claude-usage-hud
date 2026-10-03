@@ -47,7 +47,7 @@ html, body {
 .money b { color: #ffe600; font-size: 15px; font-weight: 800; text-shadow: 0 0 6px rgba(255, 230, 0, 0.45); }
 
 /* ---- capture panel: colour IS the status ---- */
-.cap { min-width: 260px; max-width: 420px; background: #37373f; }
+.cap { min-width: 260px; max-width: 470px; background: #37373f; }
 .cap.st-rec { background: linear-gradient(135deg, #ff1744 0%, #d5003c 100%); animation: glow 1.8s ease-in-out infinite; }
 .cap.st-ok { background: linear-gradient(135deg, #00c853 0%, #009e42 100%); }
 .cap.st-work { background: linear-gradient(135deg, #2979ff 0%, #0050d8 100%); }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.42 (2026-10-02)
+
+- The red capture pill on the taskbar strip now shows time remaining for a render, in the same wording as the full popup ("~22 min left"). A render with no progress for 10 minutes says so instead.
+
 ## 0.1.41 (2026-10-02)
 
 - The capture pipeline popup (the red pill on the taskbar strip) now stays open when you click other apps. Only its X closes it, and closing just hides it: the strip and the pipeline keep running, and clicking the red pill brings it back.

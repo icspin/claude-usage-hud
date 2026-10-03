@@ -166,6 +166,9 @@ function createTaskbarStrip(o) {
         else if (st === 'held') held++;
         else if (st === 'rendering' || st === 'stage1' || st === 'stage2') {
           work.push({ kind: 'render', name, pct: Number.isFinite(rd.pct) ? rd.pct : null,
+            // eta_s: seconds left for the stage in progress, as the dashboard popup shows it.
+            eta: Number.isFinite(rd.eta_s) ? rd.eta_s : null,
+            stalled: Number.isFinite(rd.stalled_min) ? rd.stalled_min : null,
             detail: st === 'stage2' ? 'ffmpeg composite' : st === 'stage1' ? 'chat frames' : 'starting' });
         } else if (st === 'failed') {
           const at = rd.log_at ? Date.parse(rd.log_at) : 0;
