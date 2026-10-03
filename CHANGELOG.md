@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.41 (2026-10-02)
+
+- The capture pipeline popup (the red pill on the taskbar strip) now stays open when you click other apps. Only its X closes it, and closing just hides it: the strip and the pipeline keep running, and clicking the red pill brings it back.
+- Clicking the red pill while the popup is open brings it to the front instead of closing it.
+- The popup reopens where you last moved it and at the size you last left it.
+- Quit from the tray menu now works even after the popup has been opened.
+
 ## 0.1.40 (2026-09-26)
 
 - Launching the app while it is already running no longer looks like nothing happened. The second copy still quits at once, and the running one now brings its taskbar strip back and opens the HUD above it. Before, only the HUD window was shown and the strip was left alone. With the strip turned off, the HUD opens on its own as before. Each such launch is logged in `strip.log`.

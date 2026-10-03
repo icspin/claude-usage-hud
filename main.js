@@ -29,7 +29,7 @@ const DEFAULT_SETTINGS = {
   taskbarStrip: true, // summary strip over the left end of the primary taskbar
   stripWidth: 860,
   stripOffset: 12,
-  capPopup: null, // {width, height} of the capture dashboard popup
+  capPopup: null, // {x, y, width, height} of the capture dashboard popup, last place the user left it
   captureDashboard: null, // optional, see src/taskbar-strip.js
   throttle: DEFAULT_THROTTLE, // pace alerts, see src/throttle.js
 };

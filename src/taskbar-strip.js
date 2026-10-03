@@ -188,7 +188,20 @@ function createTaskbarStrip(o) {
     send('cap:state', s);
   }
 
+  // Where the user last left it, if that spot is still on a connected display.
+  function savedCapBounds() {
+    const c = o.getSettings().capPopup;
+    if (!c || typeof c.x !== 'number' || typeof c.y !== 'number' || !c.width || !c.height) return null;
+    const onScreen = screen.getAllDisplays().some((d) => {
+      const wa = d.workArea;
+      return c.x + 80 > wa.x && c.x < wa.x + wa.width - 80 && c.y >= wa.y - 10 && c.y < wa.y + wa.height - 60;
+    });
+    return onScreen ? { x: c.x, y: c.y, width: c.width, height: c.height } : null;
+  }
+
   function capPopupBounds(left) {
+    const saved = savedCapBounds();
+    if (saved) return saved;
     const s = o.getSettings();
     const size = s.capPopup || { width: 560, height: 760 };
     const sb = strip ? strip.getBounds() : stripBounds();
@@ -204,6 +217,9 @@ function createTaskbarStrip(o) {
     x = Math.max(wa.x, Math.min(x, wa.x + wa.width - size.width));
     return { x, y: sb.y - height - GAP, width: size.width, height };
   }
+
+  let quitting = false;
+  app.on('before-quit', () => { quitting = true; });
 
   function createCapWin() {
     capWin = new BrowserWindow({
@@ -226,22 +242,28 @@ function createTaskbarStrip(o) {
         '<body style="background:#111216;color:#ccc;font:14px Segoe UI;padding:24px">' +
         'Capture dashboard is not answering.<br>It retries each time you open this.</body>'));
     });
-    capWin.on('close', (e) => { e.preventDefault(); capWin.hide(); });
+    // X hides it; a real quit (tray Quit) must still be allowed to close it.
+    capWin.on('close', (e) => { if (quitting) return; e.preventDefault(); capWin.hide(); });
     capWin.on('hide', sendOpen);
     capWin.on('show', sendOpen);
-    // Popup behaviour: click anywhere else and it gets out of the way.
-    capWin.on('blur', () => { if (capWin && capWin.isVisible()) capWin.hide(); });
-    capWin.on('resized', () => {
+    // Stays open when it loses focus (the user asked for a window, not a
+    // light-dismiss flyout). Only its X hides it (the 'close' handler above);
+    // the strip, the HUD and the pipeline keep running.
+    const remember = () => {
+      if (!capWin || capWin.isDestroyed() || !capWin.isVisible()) return;
       const b = capWin.getBounds();
-      o.getSettings().capPopup = { width: b.width, height: b.height };
+      o.getSettings().capPopup = { x: b.x, y: b.y, width: b.width, height: b.height };
       o.saveSettings();
-    });
+    };
+    capWin.on('resized', remember);
+    capWin.on('moved', remember);
     capWin.loadURL(capCfg().url + '/');
   }
 
   function toggleCap(left) {
     if (!capWin || capWin.isDestroyed()) createCapWin();
-    if (capWin.isVisible()) { capWin.hide(); return; }
+    // Already open: bring it forward, never hide it (only its X does that).
+    if (capWin.isVisible()) { capWin.show(); capWin.moveTop(); capWin.focus(); return; }
     capWin.setBounds(capPopupBounds(left));
     const url = capWin.webContents.getURL();
     if (!url.startsWith(capCfg().url)) capWin.loadURL(capCfg().url + '/');
