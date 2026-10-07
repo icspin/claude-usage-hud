@@ -249,9 +249,10 @@ function createTaskbarStrip(o) {
     capWin.on('close', (e) => { if (quitting) return; e.preventDefault(); capWin.hide(); });
     capWin.on('hide', sendOpen);
     capWin.on('show', sendOpen);
-    // Stays open when it loses focus (the user asked for a window, not a
-    // light-dismiss flyout). Only its X hides it (the 'close' handler above);
-    // the strip, the HUD and the pipeline keep running.
+    // Light-dismiss popup again (the user's call, 2026-10-07, reversing 0.1.41):
+    // clicking anywhere else hides it. The strip is focusable:false, so clicking
+    // the red pill does not blur it; toggleCap closes it instead.
+    capWin.on('blur', () => { if (capWin && !capWin.isDestroyed() && capWin.isVisible()) capWin.hide(); });
     const remember = () => {
       if (!capWin || capWin.isDestroyed() || !capWin.isVisible()) return;
       const b = capWin.getBounds();
@@ -265,8 +266,8 @@ function createTaskbarStrip(o) {
 
   function toggleCap(left) {
     if (!capWin || capWin.isDestroyed()) createCapWin();
-    // Already open: bring it forward, never hide it (only its X does that).
-    if (capWin.isVisible()) { capWin.show(); capWin.moveTop(); capWin.focus(); return; }
+    // Already open: the pill toggles it closed, like any light-dismiss popup.
+    if (capWin.isVisible()) { capWin.hide(); return; }
     capWin.setBounds(capPopupBounds(left));
     const url = capWin.webContents.getURL();
     if (!url.startsWith(capCfg().url)) capWin.loadURL(capCfg().url + '/');

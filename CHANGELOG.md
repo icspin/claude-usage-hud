@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.43 (2026-10-07)
+
+- The capture pipeline popup hides again when you click anywhere else, as it did before 0.1.41. Clicking the red pill while it is open closes it. It still reopens where you last left it, and tray Quit still works with it open.
+
 ## 0.1.42 (2026-10-02)
 
 - The red capture pill on the taskbar strip now shows time remaining for a render, in the same wording as the full popup ("~22 min left"). A render with no progress for 10 minutes says so instead.
