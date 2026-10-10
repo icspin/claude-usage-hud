@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.44 (2026-10-10)
+
+- The taskbar strip stays hidden while a full-screen window covers its monitor, even after you click into another window or monitor. It comes back when that window closes, minimizes or leaves full screen. The floating usage window is unchanged.
+
 ## 0.1.43 (2026-10-07)
 
 - The capture pipeline popup hides again when you click anywhere else, as it did before 0.1.41. Clicking the red pill while it is open closes it. It still reopens where you last left it, and tray Quit still works with it open.

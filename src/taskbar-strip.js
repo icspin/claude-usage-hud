@@ -8,8 +8,8 @@
 //   right half - optional capture-pipeline status (see captureDashboard below);
 //                click toggles a dashboard popup (hides when it loses focus)
 //
-// It hides itself while the foreground window covers the whole primary
-// display (fullscreen video, games), the same way the real taskbar does.
+// It hides itself while any real window covers the whole primary display
+// (fullscreen video, games, calls), even after that window loses focus.
 
 const { app, BrowserWindow, screen, ipcMain, shell, Menu } = require('electron');
 const path = require('path');
@@ -292,25 +292,50 @@ function createTaskbarStrip(o) {
   }
 
   // ---- fullscreen detection ----
-  // A long-lived PowerShell reports the foreground window's rect every 800 ms.
-  // Electron has no API for "is something fullscreen", and this avoids a
-  // native module. All ASCII: PS 5.1 misreads non-ASCII in -Command text.
+  // A long-lived PowerShell checks every 800 ms whether ANY real window covers
+  // the whole primary display, not just the foreground one (2026-10-10: a
+  // fullscreen call window that lost focus to another monitor let the strip pop
+  // back over it). Ignored, because they are not something the user is watching:
+  // cloaked windows (suspended UWP, other virtual desktops), minimized windows,
+  // tool / click-through / no-activate windows (the handwriting canvas and
+  // overlays such as NVIDIA's cover the screen invisibly), and the desktop and
+  // taskbar themselves. Rect and screen size come from the same PowerShell
+  // process, so DPI virtualisation affects both equally.
+  // Electron has no API for this and it avoids a native module. All ASCII:
+  // PS 5.1 misreads non-ASCII in -Command text.
   function startFullscreenWatch() {
     const ps = [
+      'Add-Type -AssemblyName System.Windows.Forms',
       'Add-Type @"',
       'using System; using System.Runtime.InteropServices; using System.Text;',
-      'public class FGW {',
-      ' [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();',
-      ' [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);',
-      ' [DllImport("user32.dll")] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);',
+      'public static class FSW {',
+      ' public delegate bool CB(IntPtr h, IntPtr l);',
+      ' [DllImport("user32.dll")] static extern bool EnumWindows(CB cb, IntPtr l);',
+      ' [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);',
+      ' [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);',
+      ' [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);',
+      ' [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);',
+      ' [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);',
+      ' [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int a, out int v, int s);',
       ' public struct RECT { public int L, T, R, B; }',
-      '}',
+      ' public static string Cover(int x, int y, int w, int hgt) {',
+      '  string hit = "";',
+      '  EnumWindows((h, l) => {',
+      '   if (!IsWindowVisible(h) || IsIconic(h)) return true;',
+      '   RECT r; GetWindowRect(h, out r);',
+      '   if (!(r.L <= x && r.T <= y && r.R >= x + w && r.B >= y + hgt)) return true;',
+      '   int ex = GetWindowLong(h, -20);',
+      '   if ((ex & 0x80) != 0 || (ex & 0x20) != 0 || (ex & 0x08000000) != 0) return true;',
+      '   int cl = 0; DwmGetWindowAttribute(h, 14, out cl, 4); if (cl != 0) return true;',
+      '   var sb = new StringBuilder(80); GetClassName(h, sb, 80); string c = sb.ToString();',
+      '   if (c == "Progman" || c == "WorkerW" || c == "Shell_TrayWnd" || c == "Shell_SecondaryTrayWnd") return true;',
+      '   hit = c; return false; }, IntPtr.Zero);',
+      '  return hit; } }',
       '"@',
       'while ($true) {',
-      ' $h = [FGW]::GetForegroundWindow(); $r = New-Object FGW+RECT',
-      ' [void][FGW]::GetWindowRect($h, [ref]$r); $sb = New-Object System.Text.StringBuilder 64',
-      ' [void][FGW]::GetClassName($h, $sb, 64)',
-      ' [Console]::Out.WriteLine(("{0} {1} {2} {3} {4}" -f $r.L, $r.T, $r.R, $r.B, $sb.ToString()))',
+      ' $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds',
+      ' $c = [FSW]::Cover($b.X, $b.Y, $b.Width, $b.Height)',
+      ' if ($c) { [Console]::Out.WriteLine("1 " + $c) } else { [Console]::Out.WriteLine("0") }',
       ' Start-Sleep -Milliseconds 800',
       '}',
     ].join('\n');
@@ -320,23 +345,23 @@ function createTaskbarStrip(o) {
     fsProc = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', enc], { windowsHide: true });
     fsProc.on('error', () => { fsProc = null; });
     let buf = '';
+    let lastCls = '';
     fsProc.stdout.on('data', (chunk) => {
       buf += chunk.toString();
       let nl;
       while ((nl = buf.indexOf('\n')) >= 0) {
         const line = buf.slice(0, nl).trim();
         buf = buf.slice(nl + 1);
-        const m = line.match(/^(-?\d+) (-?\d+) (-?\d+) (-?\d+) (.*)$/);
+        const m = line.match(/^([01])(?: (.*))?$/);
         if (!m) continue;
-        const [L, T, R, B] = m.slice(1, 5).map(Number);
-        const cls = m[5];
-        const d = screen.getPrimaryDisplay();
-        const f = d.scaleFactor;
-        const b = d.bounds;
-        const covers = L <= b.x * f && T <= b.y * f && R >= (b.x + b.width) * f && B >= (b.y + b.height) * f;
-        const desktop = /^(Progman|WorkerW|Shell_TrayWnd|Shell_SecondaryTrayWnd)$/.test(cls);
-        const fs = covers && !desktop;
-        if (fs !== fullscreen) { fullscreen = fs; refreshVisibility(); }
+        const fs = m[1] === '1';
+        const cls = m[2] || '';
+        if (fs !== fullscreen) {
+          fullscreen = fs;
+          if (fs && cls !== lastCls) { slog(`hidden: fullscreen window class=${cls}`); lastCls = cls; }
+          if (!fs) { slog('shown: no fullscreen window on primary'); lastCls = ''; }
+          refreshVisibility();
+        }
       }
     });
     fsProc.on('exit', () => {
